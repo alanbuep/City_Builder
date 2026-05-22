@@ -1,4 +1,5 @@
-import { CityStats, GameMode } from '../sim/Simulation';
+import { CityStats, GameMode, TechStatus } from '../sim/Simulation';
+import { Material, MATERIALS, MATERIAL_ICON, MATERIAL_LABEL } from '../sim/types';
 
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const START_YEAR = 2000;
@@ -12,6 +13,13 @@ const UTIL_INFO =
   'Servicios básicos: lo que la ciudad PRODUCE vs lo que CONSUME (su población). ' +
   'En rojo = falta, construí otra planta. La energía hace falta para que las zonas pasen de nivel 1; ' +
   'agua y gas para que lleguen al nivel máximo.';
+const TECH_INFO =
+  'Tecnología: tu ciudad desbloquea edificios nuevos al alcanzar hitos de población, ' +
+  'empleo industrial o tesoro. La barra muestra cuánto te falta para el próximo desbloqueo.';
+const MAT_INFO =
+  'Materiales de construcción de tu ciudad (reserva inicial + lo guardado en los corralones). ' +
+  'Construí arenera/cementera/ladrillería y conectalas por CALLE a un corralón para producir más. ' +
+  'Lo avanzado (empresa tecnológica, fábrica grande, estadio…) gasta materiales al construirse.';
 
 export interface HudCallbacks {
   onTogglePause: () => void;
@@ -34,6 +42,11 @@ export class Hud {
   private powerEl!: HTMLElement;
   private waterEl!: HTMLElement;
   private gasEl!: HTMLElement;
+  private matEls!: Record<Material, HTMLElement>;
+  private techCountEl!: HTMLElement;
+  private techNextEl!: HTMLElement;
+  private techBarWrap!: HTMLElement;
+  private techFill!: HTMLElement;
   private pauseBtn!: HTMLButtonElement;
   private speedBtns: HTMLButtonElement[] = [];
   private modeBtn!: HTMLButtonElement;
@@ -48,6 +61,8 @@ export class Hud {
     this.buildStats(container);
     this.buildRci(container);
     this.buildUtilities(container);
+    this.buildMaterials(container);
+    this.buildTech(container);
     this.buildMode(container);
     this.buildControls(container);
   }
@@ -106,6 +121,42 @@ export class Hud {
     this.powerEl = panel.querySelector('#util-power')!;
     this.waterEl = panel.querySelector('#util-water')!;
     this.gasEl = panel.querySelector('#util-gas')!;
+  }
+
+  private buildMaterials(container: HTMLElement): void {
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <div class="panel-head"><span style="opacity:0.85">📦 Materiales</span></div>
+      ${MATERIALS.map(
+        (m) =>
+          `<div class="util-row"><span>${MATERIAL_ICON[m]} ${MATERIAL_LABEL[m]}</span><span class="util-val" id="mat-${m}">—</span></div>`,
+      ).join('')}
+    `;
+    container.appendChild(panel);
+    this.addInfo(panel.querySelector('.panel-head')!, MAT_INFO);
+    this.matEls = {
+      arena: panel.querySelector('#mat-arena')!,
+      cemento: panel.querySelector('#mat-cemento')!,
+      ladrillo: panel.querySelector('#mat-ladrillo')!,
+    };
+  }
+
+  private buildTech(container: HTMLElement): void {
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <div class="panel-head"><span style="opacity:0.85">🔬 Tecnología</span></div>
+      <div class="tech-count" id="tech-count">—</div>
+      <div class="tech-next" id="tech-next"></div>
+      <div class="tech-bar" id="tech-bar"><div class="tech-fill" id="tech-fill"></div></div>
+    `;
+    container.appendChild(panel);
+    this.addInfo(panel.querySelector('.panel-head')!, TECH_INFO);
+    this.techCountEl = panel.querySelector('#tech-count')!;
+    this.techNextEl = panel.querySelector('#tech-next')!;
+    this.techBarWrap = panel.querySelector('#tech-bar')!;
+    this.techFill = panel.querySelector('#tech-fill')!;
   }
 
   private buildMode(container: HTMLElement): void {
@@ -192,6 +243,27 @@ export class Hud {
     this.setUtility(this.powerEl, stats.utilities.power);
     this.setUtility(this.waterEl, stats.utilities.water);
     this.setUtility(this.gasEl, stats.utilities.gas);
+
+    for (const m of MATERIALS) {
+      this.matEls[m].textContent = Math.round(stats.materials.totals[m]).toLocaleString('es');
+    }
+  }
+
+  /** Actualiza el panel de tecnología: hitos logrados y el próximo desbloqueo. */
+  setTech(status: TechStatus): void {
+    this.techCountEl.textContent = `Desbloqueos: ${status.unlocked} / ${status.total}`;
+    const n = status.next;
+    if (!n) {
+      this.techNextEl.innerHTML = '<b style="color:#7CFC9A">✓ Todo desbloqueado</b>';
+      this.techBarWrap.style.display = 'none';
+      return;
+    }
+    this.techBarWrap.style.display = '';
+    const fmt = (v: number) => (n.isMoney ? `$${v.toLocaleString('es')}` : v.toLocaleString('es'));
+    this.techNextEl.innerHTML =
+      `Próximo: ${n.icon} <b>${n.name}</b><br>` +
+      `<span style="opacity:.75">${n.metricLabel}: ${fmt(n.current)} / ${fmt(n.target)}</span>`;
+    this.techFill.style.width = `${Math.round(n.progress * 100)}%`;
   }
 
   /** Muestra producción/consumo de un servicio básico, en verde si alcanza. */

@@ -5,10 +5,13 @@ import {
   Influence,
   isZone,
   capacityOf,
+  Material,
   MAX_LEVEL,
   ROAD_MAX_LEVEL,
   ROAD_CAPACITY,
 } from './types';
+import { TECHS, BASE_UNLOCKED, TechDef, TechMetric, METRIC_LABEL } from './Tech';
+import { MaterialSystem, MaterialsSave } from './Materials';
 
 export interface Demand {
   residential: number;
@@ -32,6 +35,10 @@ export interface CityStats {
     water: { supply: number; demand: number };
     gas: { supply: number; demand: number };
   };
+  materials: {
+    totals: Record<Material, number>;
+    idleProducers: number;
+  };
 }
 
 /** Detalle de UNA casilla, para el panel inspector. */
@@ -43,9 +50,13 @@ export interface TileInfo {
   hasRoad: boolean;
   value: number; // valor del suelo (amenidades)
   coverage: number; // cobertura de servicios recibida
+  education: number; // cobertura educativa recibida
+  health: number; // cobertura de salud recibida
   cityHasPower: boolean; // ¿la ciudad produce suficiente energía?
   cityHasWater: boolean;
   cityHasGas: boolean;
+  storedMaterials?: Record<Material, number>; // (corralón) materiales que tiene guardados
+  construction?: ConstructionInfo; // (obra) datos de la construcción en curso
   maxLevel: number; // nivel máximo alcanzable con la cobertura actual
   canUpgrade: boolean;
   upgradeCost: number; // (carreteras) costo de mejorar TODO el tramo conectado
@@ -61,6 +72,28 @@ export interface TileInfo {
 
 export type GameMode = 'auto' | 'manual';
 
+/** Una obra en curso: ocupa el terreno hasta completarse y volverse el edificio real. */
+export interface Construction {
+  x: number;
+  z: number;
+  size: number;
+  target: TileType; // qué edificio será al terminar
+  status: 'planned' | 'building'; // 'planned' = esperando el OK; 'building' = en obra
+  progress: number; // meses de obra transcurridos
+  duration: number; // meses totales de la obra
+}
+
+/** Datos de una obra para el inspector (incluye si se puede iniciar y por qué no). */
+export interface ConstructionInfo {
+  target: TileType;
+  status: 'planned' | 'building';
+  progress: number;
+  duration: number;
+  cost: number;
+  canStart: boolean;
+  reason: string;
+}
+
 /** Un aviso para el jugador (algo falta o se puede mejorar). */
 export interface Alert {
   id: string;
@@ -74,6 +107,25 @@ export interface SimSave {
   money: number;
   month: number;
   mode: GameMode;
+  unlocked: string[]; // ids de tecnologías ya desbloqueadas
+  materials?: MaterialsSave; // stock de materiales (opcional: partidas viejas no lo tienen)
+  construction?: Construction[]; // obras en curso (opcional)
+}
+
+/** Progreso tecnológico para el HUD: cuánto se desbloqueó y el próximo hito. */
+export interface TechStatus {
+  unlocked: number;
+  total: number;
+  next: {
+    icon: string;
+    name: string;
+    desc: string;
+    metricLabel: string;
+    current: number;
+    target: number;
+    progress: number; // 0..1
+    isMoney: boolean;
+  } | null;
 }
 
 // --- Parámetros de la simulación ---
@@ -88,6 +140,7 @@ const GROW_CHANCE = 0.25;
 const MERGE_CHANCE = 0.2; // prob. por mes de que un bloque 2×2 de industria se fusione
 const COVERAGE_FOR_L2 = 0.4;
 const COVERAGE_FOR_L3 = 0.9;
+const WELLBEING_GROWTH = 0.5; // cuánto acelera el crecimiento el bienestar (educación + salud)
 
 // --- Economía ---
 const START_MONEY = 10000;
@@ -125,13 +178,32 @@ export class Simulation {
 
   private desirability: number[];
   private coverage: number[];
+  private education: number[];
+  private health: number[];
   private traffic: number[];
+  private bonusIncome = 0; // renta fija de edificios (casino, etc.)
+  eduCoverageAvg = 0; // cobertura educativa media sobre las zonas residenciales
+  healthCoverageAvg = 0;
+
+  // Tecnología: hitos ya logrados + cola de los recién desbloqueados (para avisar).
+  private unlocked = new Set<string>();
+  private justUnlocked: TechDef[] = [];
+
+  // Cadena de materiales (inventario por corralón + logística por calles).
+  readonly materials: MaterialSystem;
+
+  // Obras en construcción (clave "x,z" del ancla) + cola de las recién terminadas.
+  private sites = new Map<string, Construction>();
+  private justBuilt: TileType[] = [];
 
   constructor(private city: City) {
     const n = city.width * city.height;
     this.desirability = new Array(n).fill(0);
     this.coverage = new Array(n).fill(0);
+    this.education = new Array(n).fill(0);
+    this.health = new Array(n).fill(0);
     this.traffic = new Array(n).fill(0);
+    this.materials = new MaterialSystem(city.width, city.height);
   }
 
   get jobs(): number {
@@ -143,6 +215,7 @@ export class Simulation {
   }
 
   tick(): void {
+    this.advanceConstruction();
     this.recount();
     this.computeDemographics();
     this.computeDemand();
@@ -151,8 +224,79 @@ export class Simulation {
     if (this.mode === 'auto') this.develop();
     this.recount();
     this.computeDemographics();
+    this.materials.tick(this.city, this.hasPower);
     this.applyEconomy();
+    this.evaluateTech(false);
     this.month++;
+  }
+
+  // --- Obras en construcción ---
+
+  private siteKey(x: number, z: number): string {
+    return `${x},${z}`;
+  }
+
+  /** Registra una obra (cartel) en (x,z). El terreno ya debe estar ocupado por Construction. */
+  addSite(x: number, z: number, size: number, target: TileType): void {
+    const duration = 1 + size * 2; // 1×1 = 3 meses, 2×2 = 5, 3×3 = 7
+    this.sites.set(this.siteKey(x, z), { x, z, size, target, status: 'planned', progress: 0, duration });
+  }
+
+  /** Da el OK a una obra: cobra dinero + materiales y la pone en construcción. */
+  startConstruction(x: number, z: number): boolean {
+    const s = this.sites.get(this.siteKey(x, z));
+    if (!s || s.status !== 'planned') return false;
+    const cost = TILE_DEF[s.target].cost;
+    if (this.money < cost) return false;
+    if (!this.buildMaterialsOk(s.x, s.z, s.size, s.target)) return false;
+    this.money -= cost;
+    this.payBuildMaterials(s.x, s.z, s.size, s.target);
+    s.status = 'building';
+    s.progress = 0;
+    return true;
+  }
+
+  /** Obras terminadas desde la última llamada (para avisar y vaciar la cola). */
+  drainBuilt(): TileType[] {
+    const out = this.justBuilt;
+    this.justBuilt = [];
+    return out;
+  }
+
+  /** Avanza las obras un mes; al completarse, reemplaza el cartel por el edificio real. */
+  private advanceConstruction(): void {
+    for (const [k, s] of [...this.sites]) {
+      if (this.city.getTile(s.x, s.z).type !== TileType.Construction) {
+        this.sites.delete(k); // la obra fue demolida
+        continue;
+      }
+      if (s.status !== 'building') continue;
+      s.progress++;
+      if (s.progress >= s.duration) {
+        this.city.setType(s.x, s.z, TileType.Empty); // limpia el cartel (toda la obra)
+        this.city.placeBuilding(s.x, s.z, s.target, s.size);
+        this.sites.delete(k);
+        this.justBuilt.push(s.target);
+      }
+    }
+  }
+
+  // --- Construcción con materiales ---
+
+  /** ¿Se cumplen los requisitos de materiales para construir `type` (S×S) en (x,z)? */
+  buildMaterialsOk(x: number, z: number, size: number, type: TileType): boolean {
+    const def = TILE_DEF[type];
+    if (!def.build && !def.needsYard) return true; // no usa materiales
+    this.materials.refreshNetwork(this.city); // la red de calles pudo cambiar desde el último mes
+    if (def.needsYard && !this.materials.hasYardConnected(this.city, x, z, size)) return false;
+    if (def.build && !this.materials.canAffordBuild(this.city, x, z, size, def.build, !!def.needsYard)) return false;
+    return true;
+  }
+
+  /** Descuenta los materiales de la receta tras colocar el edificio. */
+  payBuildMaterials(x: number, z: number, size: number, type: TileType): void {
+    const def = TILE_DEF[type];
+    if (def.build) this.materials.payBuild(this.city, x, z, size, def.build, !!def.needsYard);
   }
 
   spend(amount: number): boolean {
@@ -192,7 +336,8 @@ export class Simulation {
   inspect(x: number, z: number): TileInfo {
     const tile = this.city.getTile(x, z);
     const def = TILE_DEF[tile.type];
-    const serviceInf = def.service; // policía/bomberos/gobierno atienden población
+    // Cobertura que atiende población: servicios, educación o salud.
+    const serviceInf = def.service ?? def.education ?? def.health;
     const w = this.city.width;
     const i = z * w + x;
     const hasRoad = this.city.hasRoadAccess(x, z);
@@ -220,6 +365,8 @@ export class Simulation {
       hasRoad,
       value: this.desirability[i],
       coverage: this.coverage[i],
+      education: this.education[i],
+      health: this.health[i],
       cityHasPower: this.hasPower,
       cityHasWater: this.hasWater,
       cityHasGas: this.hasGas,
@@ -233,6 +380,26 @@ export class Simulation {
       // Para el panel, las plantas (servicios básicos) se muestran como servicios.
       serviceServed: serviceInf ? this.populationInRadius(x, z, serviceInf.radius) : 0,
       serviceCapacity: serviceInf?.capacity ?? 0,
+      storedMaterials: tile.type === TileType.BuildYard ? this.materials.stockAt(x, z) : undefined,
+      construction: this.constructionInfo(x, z),
+    };
+  }
+
+  /** Datos de la obra en (x,z), o undefined si no hay ninguna. */
+  private constructionInfo(x: number, z: number): ConstructionInfo | undefined {
+    const s = this.sites.get(this.siteKey(x, z));
+    if (!s || this.city.getTile(x, z).type !== TileType.Construction) return undefined;
+    const cost = TILE_DEF[s.target].cost;
+    const okMoney = this.money >= cost;
+    const okMaterials = this.buildMaterialsOk(s.x, s.z, s.size, s.target);
+    return {
+      target: s.target,
+      status: s.status,
+      progress: s.progress,
+      duration: s.duration,
+      cost,
+      canStart: s.status === 'planned' && okMoney && okMaterials,
+      reason: !okMoney ? 'Falta dinero' : !okMaterials ? 'Faltan materiales o un corralón conectado' : '',
     };
   }
 
@@ -251,13 +418,24 @@ export class Simulation {
   // --- Guardado / avisos ---
 
   serialize(): SimSave {
-    return { money: this.money, month: this.month, mode: this.mode };
+    return {
+      money: this.money,
+      month: this.month,
+      mode: this.mode,
+      unlocked: [...this.unlocked],
+      materials: this.materials.serialize(),
+      construction: [...this.sites.values()],
+    };
   }
 
   load(data: SimSave): void {
     this.money = data.money;
     this.month = data.month;
     this.mode = data.mode;
+    this.unlocked = new Set(data.unlocked ?? []);
+    this.materials.load(data.materials);
+    this.sites.clear();
+    for (const s of data.construction ?? []) this.sites.set(this.siteKey(s.x, s.z), s);
     this.refresh();
   }
 
@@ -265,6 +443,9 @@ export class Simulation {
   reset(): void {
     this.money = START_MONEY;
     this.month = 0;
+    this.unlocked.clear();
+    this.materials.reset();
+    this.sites.clear();
     this.refresh();
   }
 
@@ -275,6 +456,70 @@ export class Simulation {
     this.computeDemand();
     this.computeInfluence();
     this.computeTraffic();
+    this.evaluateTech(true); // re-deriva los desbloqueos del estado actual, sin avisos
+  }
+
+  // --- Tecnología / desbloqueos ---
+
+  private metricValue(metric: TechMetric): number {
+    switch (metric) {
+      case 'population':
+        return this.population;
+      case 'industrialJobs':
+        return this.industrialJobs;
+      case 'money':
+        return this.money;
+    }
+  }
+
+  /** Desbloquea los hitos cuya meta ya se alcanzó. `silent` evita encolar avisos. */
+  private evaluateTech(silent: boolean): void {
+    for (const tech of TECHS) {
+      if (this.unlocked.has(tech.id)) continue;
+      if (this.metricValue(tech.metric) >= tech.target) {
+        this.unlocked.add(tech.id);
+        if (!silent) this.justUnlocked.push(tech);
+      }
+    }
+  }
+
+  /** Edificios disponibles ahora mismo (base + lo desbloqueado por tecnología). */
+  unlockedTypes(): Set<TileType> {
+    const set = new Set<TileType>(BASE_UNLOCKED);
+    for (const tech of TECHS) {
+      if (this.unlocked.has(tech.id)) for (const t of tech.unlocks) set.add(t);
+    }
+    return set;
+  }
+
+  /** Hitos desbloqueados desde la última llamada (para mostrar un aviso y vaciar). */
+  drainUnlocks(): TechDef[] {
+    const out = this.justUnlocked;
+    this.justUnlocked = [];
+    return out;
+  }
+
+  /** Progreso para el HUD: cuántos hitos van y cuál es el próximo. */
+  getTechStatus(): TechStatus {
+    const unlocked = this.unlocked.size;
+    const total = TECHS.length;
+    const next = TECHS.find((t) => !this.unlocked.has(t.id));
+    if (!next) return { unlocked, total, next: null };
+    const current = Math.max(0, this.metricValue(next.metric));
+    return {
+      unlocked,
+      total,
+      next: {
+        icon: next.icon,
+        name: next.name,
+        desc: next.desc,
+        metricLabel: METRIC_LABEL[next.metric],
+        current: Math.round(current),
+        target: next.target,
+        progress: Math.max(0, Math.min(1, current / next.target)),
+        isMoney: next.metric === 'money',
+      },
+    };
   }
 
   /** Avisos activos: qué le falta o conviene a la ciudad ahora mismo. */
@@ -299,6 +544,15 @@ export class Simulation {
     if (this.worstCongestion > 1) {
       alerts.push({ id: 'traffic', icon: '🚗', text: 'Tráfico congestionado: mejorá las calles', level: 'warn' });
     }
+    if (this.materials.idleProducers > 0) {
+      alerts.push({ id: 'materials', icon: '🧱', text: 'Productoras inactivas: conectá un corralón por calle o falta energía', level: 'info' });
+    }
+    if (pop > 40 && this.eduCoverageAvg < 0.3) {
+      alerts.push({ id: 'edu', icon: '🏫', text: 'Faltan escuelas: poca cobertura educativa', level: 'info' });
+    }
+    if (pop > 40 && this.healthCoverageAvg < 0.3) {
+      alerts.push({ id: 'health', icon: '🏥', text: 'Falta salud: construí hospitales o clínicas', level: 'info' });
+    }
     if (this.demand.residential > 0.6) {
       alerts.push({ id: 'dr', icon: '🏠', text: 'Alta demanda residencial', level: 'info' });
     }
@@ -318,6 +572,7 @@ export class Simulation {
     let commercial = 0;
     let industrial = 0;
     let upkeep = 0;
+    let income = 0;
     let power = 0;
     let water = 0;
     let gas = 0;
@@ -326,7 +581,9 @@ export class Simulation {
       if (this.city.isSubCell(x, z)) return; // no contar dos veces un edificio multi-casilla
       const def = TILE_DEF[tile.type];
       upkeep += def.upkeep ?? 0;
+      income += def.income ?? 0; // renta fija (casino, etc.)
       industrial += def.jobs ?? 0; // empleos de las fábricas
+      commercial += def.shopJobs ?? 0; // empleos de negocios especializados
       if (def.produces) {
         if (def.produces.kind === 'power') power += def.produces.amount;
         else if (def.produces.kind === 'water') water += def.produces.amount;
@@ -349,6 +606,7 @@ export class Simulation {
     this.commercialJobs = commercial;
     this.industrialJobs = industrial;
     this.totalUpkeep = upkeep;
+    this.bonusIncome = income;
 
     // Servicios básicos: hace falta producir al menos tanto como la población
     // (y tener al menos una planta, si no la ciudad no tiene ese suministro).
@@ -410,21 +668,52 @@ export class Simulation {
     return pop;
   }
 
-  /** Valor del suelo (amenidades) y cobertura de servicios (área + población). */
+  /** Valor del suelo (amenidades), cobertura de servicios, educación y salud. */
   private computeInfluence(): void {
     this.desirability.fill(0);
     this.coverage.fill(0);
+    this.education.fill(0);
+    this.health.fill(0);
     this.city.forEach((tile, x, z) => {
       if (this.city.isSubCell(x, z)) return; // la influencia emana solo del ancla
       const def = TILE_DEF[tile.type];
       if (def.amenity) {
         this.spread(this.desirability, x, z, def.amenity.radius, def.amenity.strength);
       }
-      if (def.service) {
-        const factor = this.serviceLoadFactor(x, z, def.service);
-        this.spread(this.coverage, x, z, def.service.radius, def.service.strength * factor);
+      // Servicios, educación y salud: cobertura radial que se diluye si se satura.
+      for (const [inf, field] of [
+        [def.service, this.coverage],
+        [def.education, this.education],
+        [def.health, this.health],
+      ] as const) {
+        if (!inf) continue;
+        const factor = this.serviceLoadFactor(x, z, inf);
+        this.spread(field, x, z, inf.radius, inf.strength * factor);
       }
     });
+    this.computeWellbeing();
+  }
+
+  /** Promedia educación y salud sobre las zonas residenciales (para avisos). */
+  private computeWellbeing(): void {
+    const w = this.city.width;
+    let edu = 0;
+    let hea = 0;
+    let homes = 0;
+    this.city.forEach((tile, x, z) => {
+      if (tile.type !== TileType.Residential || tile.level <= 0) return;
+      homes++;
+      edu += Math.min(1, this.education[z * w + x]);
+      hea += Math.min(1, this.health[z * w + x]);
+    });
+    this.eduCoverageAvg = homes > 0 ? edu / homes : 0;
+    this.healthCoverageAvg = homes > 0 ? hea / homes : 0;
+  }
+
+  /** Bono de crecimiento por bienestar (educación + salud) en una casilla. */
+  private wellbeingAt(x: number, z: number): number {
+    const i = z * this.city.width + x;
+    return (Math.min(1, this.education[i]) + Math.min(1, this.health[i])) / 2;
   }
 
   /** Eficacia de un servicio: 1 si no está saturado, menos si sobra población. */
@@ -526,7 +815,9 @@ export class Simulation {
       if (dem > DEMAND_THRESHOLD && this.city.hasRoadAccess(x, z)) {
         const maxLv = this.maxLevelFor(x, z);
         const tf = this.trafficFactor(x, z);
-        if (tile.level < maxLv && Math.random() < GROW_CHANCE * dem * (1 + value) * tf) {
+        // El bienestar (educación + salud) acelera el crecimiento donde hay cobertura.
+        const wb = 1 + WELLBEING_GROWTH * this.wellbeingAt(x, z);
+        if (tile.level < maxLv && Math.random() < GROW_CHANCE * dem * (1 + value) * tf * wb) {
           this.city.setLevel(x, z, tile.level + 1);
         }
       } else if (dem < -DEMAND_THRESHOLD) {
@@ -580,11 +871,12 @@ export class Simulation {
   }
 
   private applyEconomy(): void {
-    // Ingresos: impuesto a la renta (empleados) + impuesto a las empresas.
+    // Ingresos: impuesto a la renta (empleados) + impuesto a las empresas + rentas fijas.
     const income =
       this.employed * TAX_WORKER +
       this.commercialJobs * TAX_COMMERCE +
-      this.industrialJobs * TAX_INDUSTRY;
+      this.industrialJobs * TAX_INDUSTRY +
+      this.bonusIncome;
     // Gastos: mantenimiento + costo de atender a cada habitante.
     const expenses = this.totalUpkeep + this.population * SERVICE_COST_PER_CITIZEN;
     this.money += income - expenses;
@@ -606,6 +898,10 @@ export class Simulation {
         power: { supply: this.powerSupply, demand: this.population },
         water: { supply: this.waterSupply, demand: this.population },
         gas: { supply: this.gasSupply, demand: this.population },
+      },
+      materials: {
+        totals: this.materials.totals,
+        idleProducers: this.materials.idleProducers,
       },
     };
   }

@@ -45,6 +45,8 @@
       }
       .tool:hover { background: #3a3a3a; }
       .tool.active { background: #fff; color: #000; }
+      .tool.locked { opacity: 0.45; cursor: not-allowed; }
+      .tool.locked:hover { background: #2a2a2a; }
       .tool-cost { font-size: 11px; opacity: 0.65; }
 
       .tool-info {
@@ -57,13 +59,15 @@
         background: rgba(20, 20, 20, 0.96); color: #fff;
         padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.4;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); pointer-events: none;
+        white-space: pre-line;
       }
 
       /* --- HUD (arriba a la derecha) --- */
       #hud {
         position: fixed; top: 12px; right: 12px; z-index: 10;
         display: flex; flex-direction: column; gap: 8px; align-items: stretch;
-        min-width: 180px;
+        min-width: 180px; max-width: 240px;
+        max-height: calc(100vh - 72px); overflow-y: auto;
       }
       .stat { display: flex; justify-content: space-between; gap: 16px; line-height: 1.7; }
       .stat .val { font-weight: 600; }
@@ -76,6 +80,12 @@
       .hud-info:hover { color: #fff; }
       .util-row { display: flex; justify-content: space-between; gap: 16px; line-height: 1.7; }
       .util-row .util-val { font-weight: 600; }
+
+      /* --- Panel de tecnología --- */
+      .tech-count { font-size: 11px; opacity: 0.7; margin-bottom: 4px; }
+      .tech-next { line-height: 1.4; margin-bottom: 6px; font-size: 12px; }
+      .tech-bar { height: 8px; background: rgba(255, 255, 255, 0.12); border-radius: 4px; overflow: hidden; }
+      .tech-fill { height: 100%; width: 0; background: #7CFC9A; border-radius: 4px; transition: width 0.3s; }
 
       .controls { display: flex; gap: 6px; justify-content: center; }
       .ctrl {
@@ -109,11 +119,11 @@
       .insp-actions { display: flex; gap: 6px; }
       .ctrl[disabled] { opacity: 0.4; cursor: not-allowed; }
 
-      /* --- Notificaciones (abajo a la derecha) --- */
+      /* --- Notificaciones (abajo a la izquierda, sobre la ayuda) --- */
       #notifications {
-        position: fixed; bottom: 12px; right: 12px; z-index: 12;
-        display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
-        max-width: 280px;
+        position: fixed; bottom: 52px; left: 12px; z-index: 12;
+        display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+        max-width: 300px;
       }
       .notif {
         display: flex; gap: 8px; align-items: center;
@@ -123,6 +133,24 @@
       }
       .notif.warn { border-left-color: #ff6b6b; }
       .notif.info { border-left-color: #ffd54f; }
+
+      /* --- Toasts (avisos temporales: desbloqueos) arriba al centro --- */
+      #toasts {
+        position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 40;
+        display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none;
+      }
+      .toast {
+        display: flex; gap: 10px; align-items: center;
+        background: rgba(20, 20, 20, 0.92); color: #fff;
+        padding: 10px 16px; border-radius: 10px; font-size: 14px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); border-left: 3px solid #7CFC9A;
+        opacity: 0; transform: translateY(-12px); transition: opacity 0.35s, transform 0.35s;
+      }
+      .toast.show { opacity: 1; transform: translateY(0); }
+      .toast-icon { font-size: 18px; }
+
+      /* --- Botonera de guardado (abajo a la derecha) --- */
+      #savebar { position: fixed; bottom: 12px; right: 12px; z-index: 12; }
 
       /* --- Ayuda de controles (abajo a la izquierda) --- */
       #hint {
@@ -137,6 +165,7 @@
     <div id="toolbar"></div>
     <div id="hud"></div>
     <div id="inspector"></div>
+    <div id="savebar"></div>
     <div id="hint">
       🖱️ Click izq: construir / seleccionar &nbsp;·&nbsp; Click der: rotar &nbsp;·&nbsp; Rueda: zoom &nbsp;·&nbsp; Click medio: mover
     </div>

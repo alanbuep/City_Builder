@@ -2,7 +2,7 @@
 // Correr con:  pnpm dlx tsx scripts/smoke.ts
 import { City } from '../src/sim/City';
 import { Simulation } from '../src/sim/Simulation';
-import { TileType } from '../src/sim/types';
+import { TileType, TILE_DEF } from '../src/sim/types';
 
 function zonedCity(): { city: City; sim: Simulation } {
   const city = new City(10, 10);
@@ -250,6 +250,151 @@ const checks: Array<[string, boolean]> = [];
   const alerts = sim.getAlerts();
   console.log('[alertas]', alerts.map((a) => a.id));
   checks.push(['avisa cuando falta energía con población', alerts.some((a) => a.id === 'power')]);
+}
+
+// 13) Tecnología: al inicio hay un kit básico; los hitos desbloquean lo avanzado.
+{
+  const city = new City(12, 12);
+  const sim = new Simulation(city);
+  const u0 = sim.unlockedTypes();
+  console.log('[tech] desbloqueos iniciales:', sim.getTechStatus().unlocked, '/', sim.getTechStatus().total);
+  checks.push(['al inicio la fábrica chica está disponible', u0.has(TileType.FactorySmall)]);
+  checks.push(['al inicio la fábrica grande está bloqueada', !u0.has(TileType.FactoryLarge)]);
+  checks.push(['al inicio bomberos está bloqueado', !u0.has(TileType.Fire)]);
+
+  // Crecer la población para alcanzar el hito "Servicios públicos" (pop ≥ 40).
+  for (let x = 0; x < 12; x++) {
+    city.setType(x, 5, TileType.Road);
+    city.setType(x, 4, TileType.Residential);
+    city.setType(x, 6, TileType.Commercial);
+  }
+  city.placeBuilding(0, 0, TileType.PowerPlant, 2);
+  city.setType(0, 3, TileType.Police);
+  for (let i = 0; i < 80; i++) sim.tick();
+  const u1 = sim.unlockedTypes();
+  console.log('[tech] tras crecer → pop:', sim.population, '| bomberos:', u1.has(TileType.Fire));
+  checks.push(['al crecer la población se desbloquean bomberos + agua', u1.has(TileType.Fire) && u1.has(TileType.WaterTower)]);
+
+  // El progreso tecnológico se conserva al guardar/cargar.
+  const sim2 = new Simulation(new City(12, 12));
+  sim2.load(sim.serialize());
+  checks.push(['guardar/cargar conserva los desbloqueos', sim2.unlockedTypes().has(TileType.Fire)]);
+}
+
+// 14) Negocios especializados: un centro comercial aporta empleos comerciales.
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  city.placeBuilding(0, 0, TileType.ShoppingMall, 2);
+  sim.tick();
+  console.log('[comercio] empleos comerciales tras centro comercial:', sim.commercialJobs);
+  checks.push(['el centro comercial aporta empleos comerciales', sim.commercialJobs >= 70]);
+}
+
+// 15) Cadena de materiales: productoras + corralón conectados por calle producen.
+{
+  const city = new City(12, 12);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 12; x++) city.setType(x, 5, TileType.Road); // una sola red de calles
+  city.setType(1, 4, TileType.SandPit); // arena
+  city.setType(3, 4, TileType.CementPlant); // arena → cemento
+  city.placeBuilding(6, 6, TileType.BuildYard, 2); // corralón (almacén) conectado
+  city.placeBuilding(9, 6, TileType.PowerPlant, 2); // energía (las productoras la necesitan)
+  city.drainDirty();
+
+  for (let i = 0; i < 10; i++) sim.tick();
+  const totals = sim.getStats().materials.totals;
+  console.log('[materiales] totales tras 10 meses:', totals, '| inactivas:', sim.getStats().materials.idleProducers);
+  checks.push(['la arenera produce arena (más que la reserva)', totals.arena > 80]);
+  checks.push(['la cementera convierte arena en cemento', totals.cemento > 60]);
+  checks.push(['con corralón + energía no hay productoras inactivas', sim.getStats().materials.idleProducers === 0]);
+}
+
+// 16) La empresa tecnológica exige un corralón conectado CON materiales.
+{
+  const city = new City(12, 12);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 12; x++) city.setType(x, 5, TileType.Road);
+  city.drainDirty();
+  const noYard = sim.buildMaterialsOk(2, 6, 2, TileType.TechCompany); // sin corralón
+  city.placeBuilding(6, 6, TileType.BuildYard, 2); // corralón vacío
+  city.drainDirty();
+  const yardEmpty = sim.buildMaterialsOk(2, 6, 2, TileType.TechCompany);
+  console.log('[techco] sin corralón:', noYard, '| corralón vacío:', yardEmpty);
+  checks.push(['sin corralón no se puede la empresa tecnológica', noYard === false]);
+  checks.push(['con corralón vacío tampoco (faltan materiales)', yardEmpty === false]);
+}
+
+// 17) Guardado: el stock de materiales se conserva.
+{
+  const city = new City(8, 8);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 8; x++) city.setType(x, 3, TileType.Road);
+  city.setType(0, 2, TileType.SandPit);
+  city.placeBuilding(2, 4, TileType.BuildYard, 2);
+  city.placeBuilding(5, 4, TileType.PowerPlant, 2);
+  city.drainDirty();
+  for (let i = 0; i < 6; i++) sim.tick();
+  const before = sim.getStats().materials.totals.arena;
+
+  const city2 = new City(8, 8);
+  const sim2 = new Simulation(city2);
+  city2.load(city.serialize());
+  sim2.load(sim.serialize());
+  const after = sim2.getStats().materials.totals.arena;
+  console.log('[guardado materiales] arena antes/después:', before, after);
+  checks.push(['guardar/cargar conserva el stock de materiales', after === before && before > 80]);
+}
+
+// 18) Bienestar (educación/salud cercana) y renta fija del casino.
+{
+  const city = new City(12, 12);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 12; x++) {
+    city.setType(x, 5, TileType.Road);
+    city.setType(x, 4, TileType.Residential);
+  }
+  city.placeBuilding(0, 6, TileType.Hospital, 2);
+  city.setType(3, 6, TileType.School);
+  city.drainDirty();
+  sim.tick();
+  const zinfo = sim.inspect(1, 4);
+  console.log('[bienestar] salud:', zinfo.health.toFixed(2), '| educación:', zinfo.education.toFixed(2));
+  checks.push(['el hospital da cobertura de salud cercana', zinfo.health > 0]);
+  checks.push(['la escuela da cobertura educativa cercana', zinfo.education > 0]);
+
+  const c2 = new City(8, 8);
+  const s2 = new Simulation(c2);
+  s2.mode = 'manual'; // que nada crezca solo
+  c2.setType(0, 1, TileType.Road);
+  c2.placeBuilding(0, 2, TileType.Casino, 2);
+  c2.drainDirty();
+  const before = s2.money;
+  s2.tick();
+  console.log('[casino] dinero antes/después:', before, '→', Math.round(s2.money));
+  checks.push(['el casino genera renta (sube el dinero)', s2.money > before]);
+}
+
+// 19) Obras: el cartel no construye solo; al dar OK cobra y, tras la duración, aparece el edificio.
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  city.setType(0, 1, TileType.Road);
+  city.placeBuilding(0, 0, TileType.Construction, 1); // cartel de obra (ocupa el terreno)
+  sim.addSite(0, 0, 1, TileType.Police);
+  city.drainDirty();
+
+  for (let i = 0; i < 5; i++) sim.tick(); // sin OK: sigue siendo obra
+  checks.push(['la obra no se construye sin el OK', city.getTile(0, 0).type === TileType.Construction]);
+
+  const before = sim.money;
+  const started = sim.startConstruction(0, 0);
+  checks.push(['se puede iniciar la obra', started]);
+  checks.push(['iniciar cobra el costo', sim.money === before - TILE_DEF[TileType.Police].cost]);
+
+  for (let i = 0; i < 4; i++) sim.tick(); // 1×1 = 3 meses de obra
+  console.log('[obra] tras iniciar y esperar:', city.getTile(0, 0).type);
+  checks.push(['la obra terminada se vuelve el edificio real', city.getTile(0, 0).type === TileType.Police]);
 }
 
 let allOk = true;

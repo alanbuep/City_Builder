@@ -90,6 +90,11 @@ export class CityRenderer {
       return { color: base, height: tile.level * HEIGHT_PER_LEVEL, opacity: 1 };
     }
 
+    // Obra en construcción: cartel/andamio bajo y translúcido.
+    if (tile.type === TileType.Construction) {
+      return { color: new THREE.Color(TILE_DEF[TileType.Construction].color), height: 0.3, opacity: 0.7 };
+    }
+
     // Amenidades / servicios: altura fija definida en TILE_DEF.
     const def = TILE_DEF[tile.type];
     return { color: new THREE.Color(def.color), height: def.height ?? 0.5, opacity: 1 };

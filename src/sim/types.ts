@@ -27,7 +27,46 @@ export enum TileType {
   PowerPlant = 'power',
   WaterTower = 'water',
   GasPlant = 'gas',
+  // Comercios especializados (se desbloquean con tecnología): dan empleos comerciales.
+  ShoppingMall = 'mall',
+  Hotel = 'hotel',
+  OfficeTower = 'office',
+  // Industria especializada (empleo limpio):
+  TechPark = 'techpark',
+  // Cadena de materiales: productoras + almacén (corralón) + capstone tecnológico.
+  SandPit = 'sandpit', // Arenera (arena)
+  CementPlant = 'cement', // Cementera (arena → cemento)
+  BrickKiln = 'brickkiln', // Ladrillería (arena → ladrillo)
+  BuildYard = 'buildyard', // Corralón (almacena materiales)
+  TechCompany = 'techco', // Empresa tecnológica (requiere materiales + corralón)
+  // Bienestar (cobertura de educación / salud):
+  School = 'school',
+  University = 'university',
+  Hospital = 'hospital',
+  Clinic = 'clinic',
+  // Ocio (empleos comerciales + valor del suelo; el casino además renta):
+  Casino = 'casino',
+  Cinema = 'cinema',
+  AmusementPark = 'amusement',
+  // Obra en construcción: ocupa el terreno hasta que se completa y aparece el edificio real.
+  Construction = 'construction',
 }
+
+/** Materiales de construcción (cadena de producción). */
+export type Material = 'arena' | 'cemento' | 'ladrillo';
+export const MATERIALS: Material[] = ['arena', 'cemento', 'ladrillo'];
+/** Una cantidad de materiales (los ausentes valen 0). */
+export type MaterialBag = Partial<Record<Material, number>>;
+export const MATERIAL_LABEL: Record<Material, string> = {
+  arena: 'Arena',
+  cemento: 'Cemento',
+  ladrillo: 'Ladrillo',
+};
+export const MATERIAL_ICON: Record<Material, string> = {
+  arena: '⏳',
+  cemento: '🪨',
+  ladrillo: '🧱',
+};
 
 /** Nivel máximo de un edificio de zona (R/C/I). */
 export const MAX_LEVEL = 3;
@@ -76,9 +115,19 @@ export interface TileDef {
   upkeep?: number; // mantenimiento mensual
   size?: number; // lado del footprint (1 = una casilla; 2 = 2×2; etc.)
   jobs?: number; // empleos industriales que aporta (fábricas)
+  shopJobs?: number; // empleos comerciales que aporta (negocios ploppables)
   amenity?: Influence; // suma "valor del suelo"
   service?: Influence; // suma "cobertura de servicios" (policía/bomberos/gobierno)
+  education?: Influence; // suma "cobertura educativa" (escuela/universidad)
+  health?: Influence; // suma "cobertura de salud" (hospital/clínica)
+  income?: number; // renta fija mensual que genera (p. ej. casino)
   produces?: Production; // genera un servicio básico para toda la ciudad (luz/agua/gas)
+  // --- Cadena de materiales ---
+  makes?: { material: Material; amount: number }; // produce este material por mes (necesita energía + corralón conectado)
+  needsMaterial?: { material: Material; amount: number }; // insumo que consume por mes (lo toma del corralón conectado)
+  storesMaterials?: boolean; // corralón: almacena materiales y es el centro de distribución
+  build?: MaterialBag; // materiales que cuesta CONSTRUIRLO (una vez, al colocarlo)
+  needsYard?: boolean; // requiere un corralón conectado por calle (y saca de él los materiales)
 }
 
 export const TILE_DEF: Record<TileType, TileDef> = {
@@ -90,20 +139,42 @@ export const TILE_DEF: Record<TileType, TileDef> = {
 
   [TileType.FactorySmall]: { cost: 80, color: 0xe65100, height: 0.8, upkeep: 1, jobs: 20 },
   [TileType.FactoryMedium]: { cost: 300, color: 0xe65100, height: 1.2, upkeep: 3, size: 2, jobs: 90 },
-  [TileType.FactoryLarge]: { cost: 700, color: 0xbf360c, height: 1.7, upkeep: 6, size: 3, jobs: 220 },
+  [TileType.FactoryLarge]: { cost: 700, color: 0xbf360c, height: 1.7, upkeep: 6, size: 3, jobs: 220, build: { ladrillo: 30, cemento: 20 } },
 
   [TileType.Park]: { cost: 50, color: 0x2e7d32, height: 0.28, amenity: { radius: 3, strength: 0.6 } },
   [TileType.Plaza]: { cost: 30, color: 0x66bb6a, height: 0.2, amenity: { radius: 2, strength: 0.4 } },
-  [TileType.Stadium]: { cost: 400, color: 0x8e24aa, height: 1.6, upkeep: 5, size: 2, amenity: { radius: 5, strength: 1.0 } },
+  [TileType.Stadium]: { cost: 400, color: 0x8e24aa, height: 1.6, upkeep: 5, size: 2, amenity: { radius: 5, strength: 1.0 }, build: { cemento: 40, ladrillo: 20 } },
   [TileType.Museum]: { cost: 250, color: 0xab47bc, height: 1.0, upkeep: 3, amenity: { radius: 4, strength: 0.8 } },
 
   [TileType.Police]: { cost: 200, color: 0x1565c0, height: 0.9, upkeep: 4, service: { radius: 5, strength: 1.0, capacity: 250 } },
   [TileType.Fire]: { cost: 200, color: 0xc62828, height: 0.9, upkeep: 4, service: { radius: 5, strength: 1.0, capacity: 250 } },
-  [TileType.Government]: { cost: 500, color: 0x546e7a, height: 1.4, upkeep: 8, size: 2, service: { radius: 7, strength: 1.5, capacity: 600 } },
+  [TileType.Government]: { cost: 500, color: 0x546e7a, height: 1.4, upkeep: 8, size: 2, service: { radius: 7, strength: 1.5, capacity: 600 }, build: { cemento: 30, ladrillo: 20 } },
 
   [TileType.PowerPlant]: { cost: 500, color: 0xfdd835, height: 1.5, upkeep: 6, size: 2, produces: { kind: 'power', amount: 400 } },
   [TileType.WaterTower]: { cost: 300, color: 0x29b6f6, height: 1.3, upkeep: 4, produces: { kind: 'water', amount: 350 } },
   [TileType.GasPlant]: { cost: 350, color: 0xff7043, height: 1.2, upkeep: 4, produces: { kind: 'gas', amount: 320 } },
+
+  [TileType.ShoppingMall]: { cost: 400, color: 0x00897b, height: 1.1, upkeep: 5, size: 2, shopJobs: 70, amenity: { radius: 3, strength: 0.4 } },
+  [TileType.Hotel]: { cost: 450, color: 0xd81b60, height: 1.8, upkeep: 5, size: 2, shopJobs: 50, amenity: { radius: 5, strength: 0.8 } },
+  [TileType.OfficeTower]: { cost: 500, color: 0x3949ab, height: 2.6, upkeep: 6, shopJobs: 100 },
+  [TileType.TechPark]: { cost: 700, color: 0x00acc1, height: 1.0, upkeep: 7, size: 2, jobs: 150, amenity: { radius: 3, strength: 0.5 } },
+
+  [TileType.SandPit]: { cost: 150, color: 0xd2b48c, height: 0.6, upkeep: 2, jobs: 10, makes: { material: 'arena', amount: 8 } },
+  [TileType.CementPlant]: { cost: 250, color: 0x90a4ae, height: 1.1, upkeep: 3, jobs: 15, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'cemento', amount: 4 } },
+  [TileType.BrickKiln]: { cost: 250, color: 0xb24a3a, height: 1.0, upkeep: 3, jobs: 15, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'ladrillo', amount: 5 } },
+  [TileType.BuildYard]: { cost: 300, color: 0x8d6e63, height: 0.8, upkeep: 3, size: 2, shopJobs: 20, storesMaterials: true },
+  [TileType.TechCompany]: { cost: 800, color: 0x00bcd4, height: 1.5, upkeep: 8, size: 2, jobs: 200, amenity: { radius: 3, strength: 0.4 }, build: { ladrillo: 40, cemento: 30 }, needsYard: true },
+
+  [TileType.School]: { cost: 200, color: 0xffb300, height: 0.9, upkeep: 4, education: { radius: 5, strength: 1.0, capacity: 300 } },
+  [TileType.University]: { cost: 500, color: 0x6d4c41, height: 1.3, upkeep: 8, size: 2, education: { radius: 7, strength: 1.6, capacity: 800 } },
+  [TileType.Hospital]: { cost: 500, color: 0xe57373, height: 1.3, upkeep: 8, size: 2, health: { radius: 7, strength: 1.6, capacity: 800 } },
+  [TileType.Clinic]: { cost: 200, color: 0xffab91, height: 0.9, upkeep: 4, health: { radius: 5, strength: 1.0, capacity: 300 } },
+
+  [TileType.Casino]: { cost: 600, color: 0xffca28, height: 1.2, upkeep: 8, size: 2, shopJobs: 60, amenity: { radius: 3, strength: 0.5 }, income: 40, build: { cemento: 20, ladrillo: 20 } },
+  [TileType.Cinema]: { cost: 200, color: 0x5c6bc0, height: 0.9, upkeep: 3, shopJobs: 25, amenity: { radius: 3, strength: 0.5 } },
+  [TileType.AmusementPark]: { cost: 500, color: 0xec407a, height: 1.1, upkeep: 6, size: 2, shopJobs: 40, amenity: { radius: 6, strength: 1.2 }, build: { ladrillo: 30 } },
+
+  [TileType.Construction]: { cost: 0, color: 0xffb74d, height: 0.3 }, // cartel/andamio de obra
 };
 
 /** ¿Es una zona desarrollable (R/C/I)? */

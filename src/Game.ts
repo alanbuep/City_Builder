@@ -8,7 +8,7 @@ import { Notifications } from './ui/Notifications';
 import { SaveMenu } from './ui/SaveMenu';
 import { City } from './sim/City';
 import { Simulation } from './sim/Simulation';
-import { TILE_DEF, TileType } from './sim/types';
+import { TILE_DEF, TileType, isZone, Tile } from './sim/types';
 import { SaveData, SAVE_VERSION, saveLocal, loadLocal, exportFile, importFile } from './storage/SaveStore';
 import { GridSpec } from './grid';
 
@@ -80,10 +80,11 @@ export class Game {
     this.inspector = new Inspector(inspectorContainer, {
       onUpgrade: () => this.upgradeSelected(),
       onDemolish: () => this.demolishSelected(),
+      onStart: () => this.startSelected(),
       onClose: () => this.deselect(),
     });
     this.notifications = new Notifications();
-    new SaveMenu(hudContainer, {
+    new SaveMenu(document.getElementById('savebar') ?? hudContainer, {
       onSave: () => this.save(),
       onLoad: () => this.loadSaved(),
       onNew: () => this.newCity(),
@@ -123,17 +124,41 @@ export class Game {
       return;
     }
     const size = TILE_DEF[tool].size ?? 1;
-    if (size > 1) {
-      const valid = this.canPlaceBuilding(coord, size, TILE_DEF[tool].cost);
-      this.cityRenderer.setHover(coord, size, valid ? 'valid' : 'invalid');
+    // Edificios (ploppables): verde/rojo según si se puede abrir la obra (terreno libre + calle).
+    if (this.requiresRoad(tool)) {
+      this.cityRenderer.setHover(coord, size, this.canPlaceSite(coord, size) ? 'valid' : 'invalid');
+    } else if (tool !== TileType.Empty && this.isProtected(this.city.getTile(coord.x, coord.z))) {
+      this.cityRenderer.setHover(coord, 1, 'invalid'); // pintar acá pisaría un edificio
     } else {
-      this.cityRenderer.setHover(coord, 1, 'normal');
+      this.cityRenderer.setHover(coord, size, 'normal'); // zonas, calles, demoler
     }
   }
 
-  /** ¿Se puede colocar un edificio de S×S en (coord)? (área libre, dentro, plata) */
-  private canPlaceBuilding(coord: Coord, size: number, cost: number): boolean {
-    if (this.sim.money < cost) return false;
+  /** ¿Este tipo necesita una calle al lado para construirse? (no las zonas ni las calles) */
+  private requiresRoad(type: TileType): boolean {
+    return type !== TileType.Empty && type !== TileType.Road && !isZone(type);
+  }
+
+  /** ¿Hay algo que NO se debe pisar pintando (edificio, o zona ya construida)? */
+  private isProtected(tile: Tile): boolean {
+    if (tile.anchor !== null) return true; // parte de un edificio multi-casilla
+    if (this.requiresRoad(tile.type)) return true; // servicio/fábrica/planta/negocio/etc.
+    if (isZone(tile.type) && tile.level > 0) return true; // zona ya desarrollada
+    return false;
+  }
+
+  /** ¿Alguna casilla del footprint S×S toca una calle? */
+  private footprintHasRoad(coord: Coord, size: number): boolean {
+    for (let dz = 0; dz < size; dz++) {
+      for (let dx = 0; dx < size; dx++) {
+        if (this.city.hasRoadAccess(coord.x + dx, coord.z + dz)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** ¿Se puede ABRIR una obra de S×S en (coord)? (terreno libre + calle al lado). Es gratis. */
+  private canPlaceSite(coord: Coord, size: number): boolean {
     for (let dz = 0; dz < size; dz++) {
       for (let dx = 0; dx < size; dx++) {
         const cx = coord.x + dx;
@@ -142,7 +167,7 @@ export class Game {
         if (this.city.getTile(cx, cz).type !== TileType.Empty) return false;
       }
     }
-    return true;
+    return this.footprintHasRoad(coord, size); // los edificios necesitan calle
   }
 
   private onPointerDown(e: PointerEvent): void {
@@ -159,24 +184,23 @@ export class Game {
 
     if (!coord) return;
 
-    // Edificios multi-casilla: se colocan de un click (no se arrastran).
-    const size = TILE_DEF[tool].size ?? 1;
-    if (size > 1) {
-      this.placeBuilding(coord, tool, size);
+    // Edificios: se abre una OBRA de un click (gratis). Se paga al darle el OK.
+    if (this.requiresRoad(tool)) {
+      this.placeConstructionSite(coord, tool, TILE_DEF[tool].size ?? 1);
       return;
     }
 
+    // Calles, zonas y demoler: pintado con arrastre.
     this.painting = true;
     this.dragPath = [];
     this.paintAt(coord);
   }
 
-  /** Coloca un edificio de S×S (cobrando su costo si el área está libre). */
-  private placeBuilding(coord: Coord, type: TileType, size: number): void {
-    const cost = TILE_DEF[type].cost;
-    if (this.sim.money < cost) return;
-    if (this.city.placeBuilding(coord.x, coord.z, type, size)) {
-      this.sim.spend(cost);
+  /** Abre una obra (cartel) de S×S: ocupa el terreno gratis; se construye al dar el OK. */
+  private placeConstructionSite(coord: Coord, type: TileType, size: number): void {
+    if (!this.canPlaceSite(coord, size)) return;
+    if (this.city.placeBuilding(coord.x, coord.z, TileType.Construction, size)) {
+      this.sim.addSite(coord.x, coord.z, size, type);
     }
   }
 
@@ -207,11 +231,14 @@ export class Game {
       return;
     }
 
-    // Casilla nueva: colocar (si alcanza el dinero) y guardar para poder deshacer.
+    // Casilla nueva: colocar (si alcanza el dinero y tiene calle si hace falta).
     const cost = TILE_DEF[tool].cost;
     if (cost > 0 && this.sim.money < cost) return;
+    if (this.requiresRoad(tool) && !this.city.hasRoadAccess(coord.x, coord.z)) return;
 
     const tile = this.city.getTile(coord.x, coord.z);
+    if (tool !== TileType.Empty && this.isProtected(tile)) return; // no destruir un edificio al pintar
+
     const prevType = tile.type;
     const prevLevel = tile.level;
     const prevBuilding = tile.anchor !== null;
@@ -270,6 +297,11 @@ export class Game {
 
   private upgradeSelected(): void {
     if (this.selected) this.sim.tryUpgrade(this.selected.x, this.selected.z);
+  }
+
+  /** Da el OK a la obra seleccionada (cobra dinero + materiales y empieza a construir). */
+  private startSelected(): void {
+    if (this.selected) this.sim.startConstruction(this.selected.x, this.selected.z);
   }
 
   private demolishSelected(): void {
@@ -369,8 +401,16 @@ export class Game {
     // Mantiene el resaltado y el panel al día si hay algo seleccionado.
     this.refreshSelection();
 
+    // Tecnología: refresca qué edificios están disponibles y avisa los nuevos.
+    this.toolbar.setUnlocked(this.sim.unlockedTypes());
+    for (const tech of this.sim.drainUnlocks()) {
+      this.notifications.toast(tech.icon, `¡Desbloqueado: ${tech.name}!`);
+    }
+    if (this.sim.drainBuilt().length) this.notifications.toast('🏗️', '¡Obra terminada!');
+
     this.cityRenderer.animate(now); // pulso del resaltado de selección
     this.hud.update(this.sim.getStats());
+    this.hud.setTech(this.sim.getTechStatus());
     this.notifications.update(this.sim.getAlerts());
     this.scene.render();
   };

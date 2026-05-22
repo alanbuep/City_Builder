@@ -1,4 +1,5 @@
 import { TileType, TILE_DEF } from '../sim/types';
+import { TECH_BY_TYPE, METRIC_LABEL } from '../sim/Tech';
 
 /** Una herramienta: colocar un tipo de casilla, o "seleccionar". */
 export type Tool = TileType | 'select';
@@ -38,6 +39,25 @@ const CATEGORIES: Category[] = [
       { tool: TileType.FactorySmall, label: '🏭 Fábrica chica', desc: 'Fábrica 1×1. Da 20 empleos al instante, sin esperar a que crezca.' },
       { tool: TileType.FactoryMedium, label: '🏭 Fábrica mediana', desc: 'Fábrica 2×2. Da 90 empleos. Es en lo que se fusionan las zonas industriales.' },
       { tool: TileType.FactoryLarge, label: '🏭 Fábrica grande', desc: 'Fábrica 3×3. Da 220 empleos. El motor de una gran ciudad industrial.' },
+      { tool: TileType.TechPark, label: '🔬 Parque tecnológico', desc: 'Edificio 2×2. Empleo industrial limpio (150) y agradable: sube el valor del suelo cercano.' },
+    ],
+  },
+  {
+    label: '🛒 Comercio',
+    tools: [
+      { tool: TileType.ShoppingMall, label: '🛒 Centro comercial', desc: 'Edificio 2×2. Muchos empleos comerciales (70) y atrae gente (sube el valor del suelo).' },
+      { tool: TileType.Hotel, label: '🏨 Hotel', desc: 'Edificio 2×2. Turismo: sube mucho el valor del suelo alrededor + 50 empleos comerciales.' },
+      { tool: TileType.OfficeTower, label: '🏦 Torre de oficinas', desc: 'Altísima densidad de empleo comercial (100) en una sola casilla.' },
+    ],
+  },
+  {
+    label: '🧱 Materiales',
+    tools: [
+      { tool: TileType.SandPit, label: '⏳ Arenera', desc: 'Produce 8 de arena por mes (necesita energía y un corralón conectado por calle).' },
+      { tool: TileType.CementPlant, label: '🪨 Cementera', desc: 'Convierte 6 arena → 4 cemento por mes. Necesita energía + corralón conectado.' },
+      { tool: TileType.BrickKiln, label: '🧱 Ladrillería', desc: 'Convierte 6 arena → 5 ladrillo por mes. Necesita energía + corralón conectado.' },
+      { tool: TileType.BuildYard, label: '🏬 Corralón', desc: 'Edificio 2×2. Almacena materiales y los distribuye por su red de calles. Hace falta para construir lo avanzado.' },
+      { tool: TileType.TechCompany, label: '🔬 Empresa tecnológica', desc: 'Edificio 2×2. Requiere un corralón conectado con 40 ladrillo + 30 cemento. 200 empleos de alto valor.' },
     ],
   },
   {
@@ -54,6 +74,23 @@ const CATEGORIES: Category[] = [
       { tool: TileType.PowerPlant, label: '⚡ Central eléctrica', desc: 'Edificio 2×2. Produce 400 de energía para toda la ciudad. Sin energía suficiente, las zonas no pasan de nivel 1.' },
       { tool: TileType.WaterTower, label: '💧 Torre de agua', desc: 'Produce 350 de agua. Junto al gas, hace falta para que las zonas lleguen al nivel máximo.' },
       { tool: TileType.GasPlant, label: '🔥 Planta de gas', desc: 'Produce 320 de gas. Junto al agua, hace falta para el nivel máximo de las zonas.' },
+    ],
+  },
+  {
+    label: '🎓 Bienestar',
+    tools: [
+      { tool: TileType.School, label: '🏫 Escuela', desc: 'Cobertura educativa (radio 5). Las zonas con buena educación crecen más rápido. Atiende ~300 hab.' },
+      { tool: TileType.University, label: '🎓 Universidad', desc: 'Edificio 2×2. Gran cobertura educativa (radio 7). Atiende ~800 hab.' },
+      { tool: TileType.Clinic, label: '⛑️ Clínica', desc: 'Cobertura de salud (radio 5). Atiende ~300 hab.' },
+      { tool: TileType.Hospital, label: '🏥 Hospital', desc: 'Edificio 2×2. Gran cobertura de salud (radio 7). Atiende ~800 hab.' },
+    ],
+  },
+  {
+    label: '🎡 Ocio',
+    tools: [
+      { tool: TileType.Cinema, label: '🎬 Cine', desc: 'Empleos comerciales (25) + valor del suelo cercano.' },
+      { tool: TileType.AmusementPark, label: '🎡 Parque de diversiones', desc: 'Edificio 2×2. Gran atractivo (radio 6) + 40 empleos comerciales.' },
+      { tool: TileType.Casino, label: '🎰 Casino', desc: 'Edificio 2×2. 60 empleos comerciales, sube el valor del suelo y genera renta fija ($40/mes).' },
     ],
   },
   {
@@ -78,6 +115,8 @@ export class Toolbar {
   private tooltip: HTMLElement;
   private catButtons: HTMLButtonElement[] = [];
   private openCategory = 0;
+  private unlocked: Set<TileType> | null = null; // null = todo disponible (aún sin datos)
+  private unlockedSig = '';
 
   constructor(container: HTMLElement) {
     const cats = document.createElement('div');
@@ -108,6 +147,29 @@ export class Toolbar {
     return tool === 'select' ? 0 : TILE_DEF[tool].cost;
   }
 
+  /** Actualiza qué edificios están desbloqueados (solo re-renderiza si cambió). */
+  setUnlocked(set: Set<TileType>): void {
+    const sig = [...set].sort().join(',');
+    if (sig === this.unlockedSig) return;
+    this.unlockedSig = sig;
+    this.unlocked = set;
+    if (this.isLocked(this.current)) this.current = 'select'; // por las dudas
+    this.renderTools();
+  }
+
+  private isLocked(tool: Tool): boolean {
+    if (tool === 'select' || !this.unlocked) return false;
+    return !this.unlocked.has(tool);
+  }
+
+  /** Texto del requisito de un edificio bloqueado. */
+  private lockReason(tool: Tool): string {
+    const tech = tool === 'select' ? undefined : TECH_BY_TYPE.get(tool);
+    if (!tech) return 'Bloqueado';
+    const target = tech.metric === 'money' ? `$${tech.target.toLocaleString('es')}` : `${tech.target}`;
+    return `Se desbloquea con "${tech.name}" — ${METRIC_LABEL[tech.metric]} ≥ ${target}`;
+  }
+
   private openCat(i: number): void {
     this.openCategory = i;
     this.catButtons.forEach((b, j) => b.classList.toggle('active', j === i));
@@ -118,20 +180,24 @@ export class Toolbar {
     this.listEl.innerHTML = '';
     for (const entry of CATEGORIES[this.openCategory].tools) {
       const cost = this.costOf(entry.tool);
+      const locked = this.isLocked(entry.tool);
 
       const row = document.createElement('div');
       row.className = 'tool-row';
 
       const btn = document.createElement('button');
-      btn.className = 'tool';
-      if (entry.tool === this.current) btn.classList.add('active');
-      btn.innerHTML = `<span>${entry.label}</span>${cost > 0 ? `<span class="tool-cost">$${cost}</span>` : ''}`;
-      btn.addEventListener('click', () => this.select(entry.tool));
+      btn.className = locked ? 'tool locked' : 'tool';
+      if (entry.tool === this.current && !locked) btn.classList.add('active');
+      const right = locked ? '🔒' : cost > 0 ? `<span class="tool-cost">$${cost}</span>` : '';
+      btn.innerHTML = `<span>${entry.label}</span>${right}`;
+      if (locked) btn.title = this.lockReason(entry.tool);
+      else btn.addEventListener('click', () => this.select(entry.tool));
 
       const info = document.createElement('button');
       info.className = 'tool-info';
       info.textContent = 'ⓘ';
-      const tip = entry.desc + (cost > 0 ? ` (Costo: $${cost})` : '');
+      let tip = entry.desc + (cost > 0 ? ` (Costo: $${cost})` : '');
+      if (locked) tip += `\n🔒 ${this.lockReason(entry.tool)}`;
       info.addEventListener('mouseenter', () => this.showTip(tip, info));
       info.addEventListener('click', () => this.showTip(tip, info));
       info.addEventListener('mouseleave', () => this.hideTip());
