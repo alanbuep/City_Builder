@@ -34,10 +34,11 @@ const checks: Array<[string, boolean]> = [];
   sim.mode = 'manual';
   for (let i = 0; i < 30; i++) sim.tick();
   const popAuto = sim.population;
-  const upgraded = sim.tryUpgrade(0, 2); // residencial con carretera al lado
-  console.log('[manual] sin tocar:', popAuto, '| mejora aplicada:', upgraded, '| pop:', sim.population);
+  const upgraded = sim.tryUpgrade(0, 2); // abre una obra de ampliación (no es instantáneo)
+  for (let i = 0; i < 3; i++) sim.tick(); // la obra de zona tarda 2 meses
+  console.log('[manual] sin tocar:', popAuto, '| obra aplicada:', upgraded, '| pop:', sim.population);
   checks.push(['manual NO crece solo', popAuto === 0]);
-  checks.push(['mejorar a mano sube población', upgraded && sim.population > 0]);
+  checks.push(['mejorar a mano (obra) sube población al terminar', upgraded && sim.population > 0]);
 }
 
 // 3) Parque: aporta valor de suelo sin romper nada; la ciudad sigue creciendo.
@@ -395,6 +396,43 @@ const checks: Array<[string, boolean]> = [];
   for (let i = 0; i < 4; i++) sim.tick(); // 1×1 = 3 meses de obra
   console.log('[obra] tras iniciar y esperar:', city.getTile(0, 0).type);
   checks.push(['la obra terminada se vuelve el edificio real', city.getTile(0, 0).type === TileType.Police]);
+}
+
+// 20) Paso 2: ampliar una zona es una OBRA (no instantáneo) y sube de nivel al terminar.
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  sim.mode = 'manual'; // sin crecimiento automático que interfiera
+  for (let x = 0; x < 10; x++) {
+    city.setType(x, 1, TileType.Road);
+    city.setType(x, 0, TileType.Residential);
+  }
+  city.drainDirty();
+  const started = sim.beginZoneConstruction(0, 0, true);
+  checks.push(['se abre una obra de ampliación de zona', started]);
+  checks.push(['la zona NO sube de nivel al instante (está en obra)', city.getTile(0, 0).level === 0]);
+  for (let i = 0; i < 3; i++) sim.tick(); // duración de la obra de zona = 2 meses
+  console.log('[zona-obra] nivel tras la obra:', city.getTile(0, 0).level);
+  checks.push(['al terminar la obra la zona sube de nivel', city.getTile(0, 0).level === 1]);
+
+  // Marcadores: una calle saturada (nivel 0 rodeada de zonas a tope) sugiere mejora (💡).
+  const c2 = new City(8, 8);
+  const s2 = new Simulation(c2);
+  c2.setType(1, 1, TileType.Road); // calle nivel 0, capacidad 40
+  for (const [zx, zz, t] of [
+    [0, 1, TileType.Residential],
+    [2, 1, TileType.Commercial],
+    [1, 0, TileType.Residential],
+    [1, 2, TileType.Commercial],
+  ] as const) {
+    c2.setType(zx, zz, t);
+    c2.setLevel(zx, zz, 3); // mucho tráfico hacia la calle
+  }
+  c2.drainDirty();
+  s2.tick(); // calcula el tráfico
+  const markers = s2.getMarkers();
+  console.log('[marcadores] cantidad:', markers.length);
+  checks.push(['una calle saturada sugiere mejora (💡)', markers.some((m) => m.x === 1 && m.z === 1 && m.kind === 'upgrade')]);
 }
 
 let allOk = true;

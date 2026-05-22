@@ -215,8 +215,13 @@ export class Inspector {
     const def = TILE_DEF[c.target];
     this.titleEl.textContent = '🚧 Obra';
 
-    const lines = [`Construirá: <b>${NAME[c.target]}</b>`];
-    lines.push(`Costo: $${c.cost}${def.build ? ` + ${formatBag(def.build)}` : ''}`);
+    const lines: string[] = [];
+    if (c.targetLevel !== undefined) {
+      lines.push(`Ampliando ${NAME[c.target]} a <b>nivel ${c.targetLevel}</b>`);
+    } else {
+      lines.push(`Construirá: <b>${NAME[c.target]}</b>`);
+      lines.push(`Costo: $${c.cost}${def.build ? ` + ${formatBag(def.build)}` : ''}`);
+    }
     if (c.status === 'building') {
       const pct = Math.round((c.progress / c.duration) * 100);
       lines.push(`🏗️ Construyendo… <b>${pct}%</b> (${c.progress}/${c.duration} meses)`);

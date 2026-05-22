@@ -78,6 +78,7 @@ export interface Construction {
   z: number;
   size: number;
   target: TileType; // qué edificio será al terminar
+  targetLevel?: number; // (obra de zona in situ) nivel al que se amplía; ausente = edificio nuevo
   status: 'planned' | 'building'; // 'planned' = esperando el OK; 'building' = en obra
   progress: number; // meses de obra transcurridos
   duration: number; // meses totales de la obra
@@ -86,12 +87,20 @@ export interface Construction {
 /** Datos de una obra para el inspector (incluye si se puede iniciar y por qué no). */
 export interface ConstructionInfo {
   target: TileType;
+  targetLevel?: number;
   status: 'planned' | 'building';
   progress: number;
   duration: number;
   cost: number;
   canStart: boolean;
   reason: string;
+}
+
+/** Marcador flotante sobre una casilla (nube de sugerencia / obra en curso). */
+export interface Marker {
+  x: number;
+  z: number;
+  kind: 'build' | 'upgrade';
 }
 
 /** Un aviso para el jugador (algo falta o se puede mejorar). */
@@ -242,6 +251,27 @@ export class Simulation {
     this.sites.set(this.siteKey(x, z), { x, z, size, target, status: 'planned', progress: 0, duration });
   }
 
+  /**
+   * Abre (y arranca) una obra de AMPLIACIÓN de una zona R/C/I in situ: la casilla
+   * sigue mostrando su nivel actual y, al terminar, sube un nivel. En modo auto se
+   * llama gratis (crecimiento orgánico); a mano cobra el costo de mejora.
+   * Devuelve false si no se pudo (ya hay obra, nivel máximo, sin plata...).
+   */
+  beginZoneConstruction(x: number, z: number, free: boolean): boolean {
+    const key = this.siteKey(x, z);
+    if (this.sites.has(key)) return false; // ya hay una obra en esta casilla
+    const tile = this.city.getTile(x, z);
+    if (!isZone(tile.type) || tile.level >= MAX_LEVEL) return false;
+    const targetLevel = tile.level + 1;
+    if (!free) {
+      const cost = UPGRADE_BASE_COST * targetLevel;
+      if (this.money < cost) return false;
+      this.money -= cost;
+    }
+    this.sites.set(key, { x, z, size: 1, target: tile.type, targetLevel, status: 'building', progress: 0, duration: 2 });
+    return true;
+  }
+
   /** Da el OK a una obra: cobra dinero + materiales y la pone en construcción. */
   startConstruction(x: number, z: number): boolean {
     const s = this.sites.get(this.siteKey(x, z));
@@ -263,16 +293,29 @@ export class Simulation {
     return out;
   }
 
-  /** Avanza las obras un mes; al completarse, reemplaza el cartel por el edificio real. */
+  /** Avanza las obras un mes; al completarse, aparece el edificio (o sube el nivel). */
   private advanceConstruction(): void {
     for (const [k, s] of [...this.sites]) {
+      if (s.targetLevel !== undefined) {
+        // Obra de zona (in situ): la casilla sigue siendo la zona; al terminar sube de nivel.
+        if (this.city.getTile(s.x, s.z).type !== s.target) {
+          this.sites.delete(k); // la zona fue demolida o cambiada
+          continue;
+        }
+        if (s.status !== 'building') continue;
+        if (++s.progress >= s.duration) {
+          this.city.setLevel(s.x, s.z, s.targetLevel);
+          this.sites.delete(k); // (sin aviso: el crecimiento de zonas sería spam)
+        }
+        continue;
+      }
+      // Obra de edificio nuevo (cartel sobre el terreno).
       if (this.city.getTile(s.x, s.z).type !== TileType.Construction) {
         this.sites.delete(k); // la obra fue demolida
         continue;
       }
       if (s.status !== 'building') continue;
-      s.progress++;
-      if (s.progress >= s.duration) {
+      if (++s.progress >= s.duration) {
         this.city.setType(s.x, s.z, TileType.Empty); // limpia el cartel (toda la obra)
         this.city.placeBuilding(s.x, s.z, s.target, s.size);
         this.sites.delete(k);
@@ -325,12 +368,8 @@ export class Simulation {
     if (!isZone(tile.type) || tile.level >= MAX_LEVEL) return false;
     if (!this.city.hasRoadAccess(x, z)) return false;
     if (tile.level + 1 > this.maxLevelFor(x, z)) return false;
-    if (!this.spend(UPGRADE_BASE_COST * (tile.level + 1))) return false;
-
-    this.city.setLevel(x, z, tile.level + 1);
-    this.recount();
-    this.computeDemographics();
-    return true;
+    // Mejorar a mano = abrir una obra de ampliación (cobra y construye con progreso).
+    return this.beginZoneConstruction(x, z, false);
   }
 
   inspect(x: number, z: number): TileInfo {
@@ -388,12 +427,13 @@ export class Simulation {
   /** Datos de la obra en (x,z), o undefined si no hay ninguna. */
   private constructionInfo(x: number, z: number): ConstructionInfo | undefined {
     const s = this.sites.get(this.siteKey(x, z));
-    if (!s || this.city.getTile(x, z).type !== TileType.Construction) return undefined;
+    if (!s) return undefined;
     const cost = TILE_DEF[s.target].cost;
     const okMoney = this.money >= cost;
     const okMaterials = this.buildMaterialsOk(s.x, s.z, s.size, s.target);
     return {
       target: s.target,
+      targetLevel: s.targetLevel,
       status: s.status,
       progress: s.progress,
       duration: s.duration,
@@ -401,6 +441,33 @@ export class Simulation {
       canStart: s.status === 'planned' && okMoney && okMaterials,
       reason: !okMoney ? 'Falta dinero' : !okMaterials ? 'Faltan materiales o un corralón conectado' : '',
     };
+  }
+
+  /** Marcadores flotantes: obras de zona en curso (🏗️) y sugerencias de mejora (💡). */
+  getMarkers(): Marker[] {
+    const out: Marker[] = [];
+    // Obras de ampliación de zona en curso.
+    for (const s of this.sites.values()) {
+      if (s.targetLevel !== undefined) out.push({ x: s.x, z: s.z, kind: 'build' });
+    }
+    // Sugerencias de mejora.
+    this.city.forEach((tile, x, z) => {
+      if (this.sites.has(this.siteKey(x, z))) return; // ya hay obra
+      if (tile.type === TileType.Road) {
+        // Calle congestionada que se puede mejorar (en cualquier modo).
+        if (tile.level < ROAD_MAX_LEVEL && this.getCongestion(x, z) > 0.8) {
+          out.push({ x, z, kind: 'upgrade' });
+        }
+        return;
+      }
+      // Zonas que podrían subir de nivel: sugerir solo en modo Constructor (en auto crecen solas).
+      if (this.mode === 'manual' && isZone(tile.type) && tile.level > 0 && tile.level < MAX_LEVEL) {
+        if (this.city.hasRoadAccess(x, z) && tile.level < this.maxLevelFor(x, z)) {
+          out.push({ x, z, kind: 'upgrade' });
+        }
+      }
+    });
+    return out.slice(0, 80); // tope para no saturar
   }
 
   getCongestion(x: number, z: number): number {
@@ -802,6 +869,7 @@ export class Simulation {
 
     this.city.forEach((tile, x, z) => {
       if (!isZone(tile.type)) return;
+      if (this.sites.has(this.siteKey(x, z))) return; // ya hay una obra en curso acá
 
       const dem =
         tile.type === TileType.Residential
@@ -818,7 +886,7 @@ export class Simulation {
         // El bienestar (educación + salud) acelera el crecimiento donde hay cobertura.
         const wb = 1 + WELLBEING_GROWTH * this.wellbeingAt(x, z);
         if (tile.level < maxLv && Math.random() < GROW_CHANCE * dem * (1 + value) * tf * wb) {
-          this.city.setLevel(x, z, tile.level + 1);
+          this.beginZoneConstruction(x, z, true); // crecimiento orgánico = obra gratis con progreso
         }
       } else if (dem < -DEMAND_THRESHOLD) {
         const resist = 1 - Math.min(0.9, value);

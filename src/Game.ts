@@ -408,6 +408,7 @@ export class Game {
     }
     if (this.sim.drainBuilt().length) this.notifications.toast('🏗️', '¡Obra terminada!');
 
+    this.cityRenderer.setMarkers(this.sim.getMarkers()); // nubes: obras + sugerencias de mejora
     this.cityRenderer.animate(now); // pulso del resaltado de selección
     this.hud.update(this.sim.getStats());
     this.hud.setTech(this.sim.getTechStatus());

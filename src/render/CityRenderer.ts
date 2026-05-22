@@ -7,6 +7,25 @@ const ROAD_HEIGHTS = [0.06, 0.1, 0.14]; // calle / avenida / autopista
 const LOT_HEIGHT = 0.08; // solar zonificado sin construir
 const HEIGHT_PER_LEVEL = 0.7; // crecimiento de edificios de zona por nivel
 
+/** Crea un material de sprite con un emoji dentro de un círculo (para los marcadores). */
+function emojiMaterial(emoji: string): THREE.SpriteMaterial {
+  const size = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size * 0.42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.font = '72px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, size / 2, size / 2 + 6);
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  return new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+}
+
 /**
  * Traduce el estado de la `City` a objetos 3D: un mesh por casilla visible,
  * más el suelo, la cuadrícula y los resaltados. Las carreteras se recolorean
@@ -17,6 +36,11 @@ export class CityRenderer {
   private meshes = new Map<string, THREE.Mesh>();
   private hover: THREE.Mesh;
   private selected: THREE.Mesh;
+
+  // Marcadores flotantes (nubes de sugerencia / obras de zona).
+  private markerGroup = new THREE.Group();
+  private markerPool: THREE.Sprite[] = [];
+  private markerMats: Record<'build' | 'upgrade', THREE.SpriteMaterial>;
 
   private cube = new THREE.BoxGeometry(1, 1, 1);
   private white = new THREE.Color(0xffffff);
@@ -60,6 +84,32 @@ export class CityRenderer {
     this.selected.visible = false;
     this.selected.renderOrder = 2;
     scene.add(this.selected);
+
+    this.markerMats = { build: emojiMaterial('🏗️'), upgrade: emojiMaterial('💡') };
+    scene.add(this.markerGroup);
+  }
+
+  /** Coloca/actualiza los marcadores flotantes (reutiliza un pool de sprites). */
+  setMarkers(markers: Array<{ x: number; z: number; kind: 'build' | 'upgrade' }>): void {
+    while (this.markerPool.length < markers.length) {
+      const sprite = new THREE.Sprite(this.markerMats.upgrade);
+      sprite.scale.set(0.8, 0.8, 0.8);
+      sprite.renderOrder = 5;
+      sprite.visible = false;
+      this.markerGroup.add(sprite);
+      this.markerPool.push(sprite);
+    }
+    for (let i = 0; i < this.markerPool.length; i++) {
+      const sprite = this.markerPool[i];
+      const m = markers[i];
+      if (m) {
+        sprite.material = this.markerMats[m.kind];
+        sprite.position.set(tileCenterX(m.x, this.grid), 1.9, tileCenterZ(m.z, this.grid));
+        sprite.visible = true;
+      } else {
+        sprite.visible = false;
+      }
+    }
   }
 
   /** Anima los resaltados (pulso de la selección). Se llama cada frame. */
