@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>City Builder</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%; height: 100%; overflow: hidden;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      #app { position: fixed; inset: 0; }
+
+      /* --- Paneles genéricos (HUD y toolbar comparten estilo) --- */
+      .panel {
+        background: rgba(0, 0, 0, 0.55); color: #fff;
+        padding: 10px 12px; border-radius: 10px;
+        backdrop-filter: blur(4px); font-size: 13px;
+      }
+
+      /* --- Barra de herramientas (arriba a la izquierda) --- */
+      #toolbar {
+        position: fixed; top: 12px; left: 12px; z-index: 10;
+        display: flex; gap: 6px; flex-wrap: wrap;
+        max-width: 360px;
+        background: rgba(0, 0, 0, 0.55);
+        padding: 8px; border-radius: 10px; backdrop-filter: blur(4px);
+      }
+      .tool {
+        border: none; border-radius: 8px; padding: 7px 10px;
+        font-size: 13px; cursor: pointer;
+        background: #2a2a2a; color: #fff; transition: background 0.12s;
+      }
+      .tool:hover { background: #3a3a3a; }
+      .tool.active { background: #fff; color: #000; }
+
+      /* --- HUD (arriba a la derecha) --- */
+      #hud {
+        position: fixed; top: 12px; right: 12px; z-index: 10;
+        display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+        min-width: 180px;
+      }
+      .stat { display: flex; justify-content: space-between; gap: 16px; line-height: 1.7; }
+      .stat .val { font-weight: 600; }
+
+      .controls { display: flex; gap: 6px; justify-content: center; }
+      .ctrl {
+        border: none; border-radius: 8px; padding: 6px 12px; cursor: pointer;
+        background: #2a2a2a; color: #fff; font-size: 13px;
+      }
+      .ctrl:hover { background: #3a3a3a; }
+      .ctrl.active { background: #fff; color: #000; }
+
+      /* --- Barras de demanda RCI --- */
+      .rci { display: flex; gap: 12px; justify-content: center; align-items: flex-end; }
+      .rci .bar-wrap {
+        width: 22px; height: 56px; position: relative;
+        background: rgba(255, 255, 255, 0.08); border-radius: 4px;
+      }
+      .rci .mid { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255, 255, 255, 0.35); }
+      .rci .fill { position: absolute; left: 2px; right: 2px; border-radius: 3px; transition: height 0.25s, bottom 0.25s, top 0.25s; }
+      .rci .lbl { text-align: center; font-size: 11px; margin-top: 3px; opacity: 0.8; }
+
+      /* --- Panel inspector (abajo al centro) --- */
+      #inspector { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 11; }
+      .inspector { min-width: 240px; }
+      .insp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+      .insp-title { font-weight: 600; font-size: 15px; }
+      .insp-close {
+        border: none; background: transparent; color: #fff; cursor: pointer;
+        font-size: 14px; opacity: 0.7;
+      }
+      .insp-close:hover { opacity: 1; }
+      .insp-body { line-height: 1.7; opacity: 0.92; margin-bottom: 8px; }
+      .insp-actions { display: flex; gap: 6px; }
+      .ctrl[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+      /* --- Ayuda de controles (abajo a la izquierda) --- */
+      #hint {
+        position: fixed; bottom: 12px; left: 12px; z-index: 10;
+        background: rgba(0, 0, 0, 0.55); color: #fff;
+        padding: 8px 12px; border-radius: 8px; font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="toolbar"></div>
+    <div id="hud"></div>
+    <div id="inspector"></div>
+    <div id="hint">
+      🖱️ Click izq: construir / seleccionar &nbsp;·&nbsp; Click der: rotar &nbsp;·&nbsp; Rueda: zoom &nbsp;·&nbsp; Click medio: mover
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
