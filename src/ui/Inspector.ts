@@ -14,6 +14,9 @@ const NAME: Record<TileType, string> = {
   [TileType.Residential]: 'Residencial 🏠',
   [TileType.Commercial]: 'Comercial 🏢',
   [TileType.Industrial]: 'Industrial 🏭',
+  [TileType.FactorySmall]: 'Fábrica chica 🏭',
+  [TileType.FactoryMedium]: 'Fábrica mediana 🏭',
+  [TileType.FactoryLarge]: 'Fábrica grande 🏭',
   [TileType.Park]: 'Parque 🌳',
   [TileType.Plaza]: 'Plaza ⛲',
   [TileType.Stadium]: 'Estadio 🏟️',
@@ -101,6 +104,9 @@ export class Inspector {
       );
     } else if (def.amenity) {
       lines.push('Sube el valor del suelo de las zonas cercanas. ✨');
+    } else if (def.jobs) {
+      lines.push('Fábrica (empleos industriales). 🏭');
+      lines.push(`Empleos: ${def.jobs}`);
     } else {
       const capLabel = info.type === TileType.Residential ? 'Habitantes' : 'Empleos';
       lines.push(`Nivel: ${info.level} / ${MAX_LEVEL}`);

@@ -9,6 +9,11 @@ export enum TileType {
   Residential = 'residential',
   Commercial = 'commercial',
   Industrial = 'industrial',
+  // Fábricas: dan empleos industriales, no crecen por nivel. Las prefabricadas
+  // se plopean; la mediana también surge al fusionarse zonas industriales.
+  FactorySmall = 'factory_s',
+  FactoryMedium = 'factory_m',
+  FactoryLarge = 'factory_l',
   // Amenidades (suben el valor del suelo):
   Park = 'park',
   Plaza = 'plaza',
@@ -57,6 +62,7 @@ export interface TileDef {
   height?: number; // altura fija (amenidades/servicios; zonas y calles se calculan aparte)
   upkeep?: number; // mantenimiento mensual
   size?: number; // lado del footprint (1 = una casilla; 2 = 2×2; etc.)
+  jobs?: number; // empleos industriales que aporta (fábricas)
   amenity?: Influence; // suma "valor del suelo"
   service?: Influence; // suma "cobertura de servicios"
 }
@@ -67,6 +73,10 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Residential]: { cost: 20, color: 0x4caf50 },
   [TileType.Commercial]: { cost: 20, color: 0x2196f3 },
   [TileType.Industrial]: { cost: 20, color: 0xffc107 },
+
+  [TileType.FactorySmall]: { cost: 80, color: 0xe65100, height: 0.8, upkeep: 1, jobs: 20 },
+  [TileType.FactoryMedium]: { cost: 300, color: 0xe65100, height: 1.2, upkeep: 3, size: 2, jobs: 90 },
+  [TileType.FactoryLarge]: { cost: 700, color: 0xbf360c, height: 1.7, upkeep: 6, size: 3, jobs: 220 },
 
   [TileType.Park]: { cost: 50, color: 0x2e7d32, height: 0.28, amenity: { radius: 3, strength: 0.6 } },
   [TileType.Plaza]: { cost: 30, color: 0x66bb6a, height: 0.2, amenity: { radius: 2, strength: 0.4 } },

@@ -19,6 +19,10 @@ const TOOLS: ToolDef[] = [
   { tool: TileType.Residential, label: '🏠 Residencial' },
   { tool: TileType.Commercial, label: '🏢 Comercial' },
   { tool: TileType.Industrial, label: '🏭 Industrial' },
+  // Fábricas prefabricadas:
+  { tool: TileType.FactorySmall, label: '🏭 Fábrica' },
+  { tool: TileType.FactoryMedium, label: '🏭 F. mediana' },
+  { tool: TileType.FactoryLarge, label: '🏭 F. grande' },
   // Amenidades:
   { tool: TileType.Park, label: '🌳 Parque' },
   { tool: TileType.Plaza, label: '⛲ Plaza' },

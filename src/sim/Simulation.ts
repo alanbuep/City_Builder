@@ -62,6 +62,7 @@ const INDUSTRY_PER_COMMERCE = 0.6;
 const DEMAND_SCALE = 30;
 const DEMAND_THRESHOLD = 0.05;
 const GROW_CHANCE = 0.25;
+const MERGE_CHANCE = 0.2; // prob. por mes de que un bloque 2×2 de industria se fusione
 const COVERAGE_FOR_L2 = 0.4;
 const COVERAGE_FOR_L3 = 0.9;
 
@@ -215,7 +216,9 @@ export class Simulation {
 
     this.city.forEach((tile, x, z) => {
       if (this.city.isSubCell(x, z)) return; // no contar dos veces un edificio multi-casilla
-      upkeep += TILE_DEF[tile.type].upkeep ?? 0;
+      const def = TILE_DEF[tile.type];
+      upkeep += def.upkeep ?? 0;
+      industrial += def.jobs ?? 0; // empleos de las fábricas
       switch (tile.type) {
         case TileType.Residential:
           pop += capacityOf(tile.type, tile.level);
@@ -410,6 +413,47 @@ export class Simulation {
         }
       }
     });
+
+    this.mergeIndustry();
+  }
+
+  /** ¿Las 4 casillas (x,z)..(x+1,z+1) son industria nivel máximo con acceso a calle? */
+  private isMergeableBlock(x: number, z: number): boolean {
+    let road = false;
+    for (let dz = 0; dz < 2; dz++) {
+      for (let dx = 0; dx < 2; dx++) {
+        const cx = x + dx;
+        const cz = z + dz;
+        if (!this.city.inBounds(cx, cz)) return false;
+        const t = this.city.getTile(cx, cz);
+        if (t.type !== TileType.Industrial || t.level < MAX_LEVEL) return false;
+        if (this.city.hasRoadAccess(cx, cz)) road = true;
+      }
+    }
+    return road;
+  }
+
+  /**
+   * Crecimiento "a lo ancho": un bloque 2×2 de industria a nivel máximo (con
+   * calle) se consolida solo en una fábrica mediana. Reúno candidatos y luego
+   * los aplico (re-chequeando, porque una fusión cambia las casillas vecinas).
+   */
+  private mergeIndustry(): void {
+    const candidates: Array<{ x: number; z: number }> = [];
+    for (let z = 0; z < this.city.height - 1; z++) {
+      for (let x = 0; x < this.city.width - 1; x++) {
+        if (this.isMergeableBlock(x, z)) candidates.push({ x, z });
+      }
+    }
+    for (const c of candidates) {
+      if (!this.isMergeableBlock(c.x, c.z)) continue; // pudo haber cambiado por otra fusión
+      if (Math.random() >= MERGE_CHANCE) continue;
+      this.city.setType(c.x, c.z, TileType.Empty);
+      this.city.setType(c.x + 1, c.z, TileType.Empty);
+      this.city.setType(c.x, c.z + 1, TileType.Empty);
+      this.city.setType(c.x + 1, c.z + 1, TileType.Empty);
+      this.city.placeBuilding(c.x, c.z, TileType.FactoryMedium, 2);
+    }
   }
 
   private applyEconomy(): void {

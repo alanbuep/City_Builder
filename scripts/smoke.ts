@@ -151,6 +151,47 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['demoler una celda borra el edificio entero', remaining === 0]);
 }
 
+// 8) Fábrica prefabricada: plopearla da empleos industriales.
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  city.placeBuilding(0, 0, TileType.FactoryMedium, 2);
+  sim.tick();
+  console.log('[fábrica] empleos industriales tras plopear F. mediana:', sim.industrialJobs);
+  checks.push(['fábrica prefabricada aporta empleos', sim.industrialJobs >= 90]);
+}
+
+// 9) Fusión: un bloque 2×2 de industria a nivel máx (con calle) → fábrica mediana.
+{
+  const city = new City(14, 14);
+  const sim = new Simulation(city);
+  for (let x = 4; x < 7; x++) city.setType(x, 7, TileType.Road);
+  // Re-forzamos cada mes: población (para demanda industrial positiva) + el bloque.
+  const force = () => {
+    for (let z = 0; z < 4; z++) {
+      for (let x = 8; x < 14; x++) {
+        city.setType(x, z, TileType.Residential);
+        city.setLevel(x, z, 3);
+      }
+    }
+    for (let dz = 0; dz < 2; dz++) {
+      for (let dx = 0; dx < 2; dx++) {
+        city.setType(4 + dx, 5 + dz, TileType.Industrial);
+        city.setLevel(4 + dx, 5 + dz, 3);
+      }
+    }
+  };
+  force();
+  let merged = false;
+  for (let i = 0; i < 100 && !merged; i++) {
+    sim.tick();
+    if (city.getTile(4, 5).type === TileType.FactoryMedium) merged = true;
+    else force();
+  }
+  console.log('[fusión] bloque 2×2 industrial → fábrica mediana:', merged);
+  checks.push(['zonas industriales se fusionan en fábrica', merged]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);
