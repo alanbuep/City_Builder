@@ -22,18 +22,42 @@
       /* --- Barra de herramientas (arriba a la izquierda) --- */
       #toolbar {
         position: fixed; top: 12px; left: 12px; z-index: 10;
-        display: flex; gap: 6px; flex-wrap: wrap;
-        max-width: 360px;
+        display: flex; flex-direction: column; gap: 8px; width: 220px;
         background: rgba(0, 0, 0, 0.55);
         padding: 8px; border-radius: 10px; backdrop-filter: blur(4px);
       }
+      .tool-cats { display: flex; flex-wrap: wrap; gap: 4px; }
+      .cat {
+        border: none; border-radius: 8px; padding: 5px 8px;
+        font-size: 12px; cursor: pointer; background: #2a2a2a; color: #fff;
+        transition: background 0.12s;
+      }
+      .cat:hover { background: #3a3a3a; }
+      .cat.active { background: #fff; color: #000; }
+
+      .tool-list { display: flex; flex-direction: column; gap: 4px; }
+      .tool-row { display: flex; gap: 4px; }
       .tool {
+        flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 8px;
         border: none; border-radius: 8px; padding: 7px 10px;
-        font-size: 13px; cursor: pointer;
+        font-size: 13px; cursor: pointer; text-align: left;
         background: #2a2a2a; color: #fff; transition: background 0.12s;
       }
       .tool:hover { background: #3a3a3a; }
       .tool.active { background: #fff; color: #000; }
+      .tool-cost { font-size: 11px; opacity: 0.65; }
+
+      .tool-info {
+        border: none; border-radius: 8px; padding: 0 9px; cursor: pointer;
+        background: #2a2a2a; color: #9ecbff; font-size: 13px;
+      }
+      .tool-info:hover { background: #3a3a3a; }
+      .tool-tip {
+        position: fixed; z-index: 30; max-width: 240px;
+        background: rgba(20, 20, 20, 0.96); color: #fff;
+        padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.4;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); pointer-events: none;
+      }
 
       /* --- HUD (arriba a la derecha) --- */
       #hud {
@@ -43,6 +67,15 @@
       }
       .stat { display: flex; justify-content: space-between; gap: 16px; line-height: 1.7; }
       .stat .val { font-weight: 600; }
+
+      .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+      .hud-info {
+        border: none; background: transparent; color: #9ecbff; cursor: pointer;
+        font-size: 12px; padding: 0 2px;
+      }
+      .hud-info:hover { color: #fff; }
+      .util-row { display: flex; justify-content: space-between; gap: 16px; line-height: 1.7; }
+      .util-row .util-val { font-weight: 600; }
 
       .controls { display: flex; gap: 6px; justify-content: center; }
       .ctrl {
@@ -75,6 +108,21 @@
       .insp-body { line-height: 1.7; opacity: 0.92; margin-bottom: 8px; }
       .insp-actions { display: flex; gap: 6px; }
       .ctrl[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+      /* --- Notificaciones (abajo a la derecha) --- */
+      #notifications {
+        position: fixed; bottom: 12px; right: 12px; z-index: 12;
+        display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+        max-width: 280px;
+      }
+      .notif {
+        display: flex; gap: 8px; align-items: center;
+        background: rgba(0, 0, 0, 0.6); color: #fff;
+        padding: 7px 11px; border-radius: 8px; font-size: 12px;
+        backdrop-filter: blur(4px); border-left: 3px solid #9ecbff;
+      }
+      .notif.warn { border-left-color: #ff6b6b; }
+      .notif.info { border-left-color: #ffd54f; }
 
       /* --- Ayuda de controles (abajo a la izquierda) --- */
       #hint {

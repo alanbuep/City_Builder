@@ -80,13 +80,14 @@ const checks: Array<[string, boolean]> = [];
     city.setType(x, 6, TileType.Commercial); // empleos, para que la zona cobre vida
   }
 
-  const before = sim.inspect(0, 4); // sin servicios todavía
+  const before = sim.inspect(0, 4); // sin nada todavía
+  city.placeBuilding(0, 0, TileType.PowerPlant, 2); // luz/agua (necesarios para nivel 2)
   city.setType(0, 3, TileType.Police);
   sim.tick(); // recalcula cobertura
   const after = sim.inspect(0, 4);
-  console.log('[servicios] maxLevel sin → con policía:', before.maxLevel, '→', after.maxLevel);
+  console.log('[servicios] maxLevel sin → con policía+luz:', before.maxLevel, '→', after.maxLevel);
   checks.push(['sin servicios el nivel topa en 1', before.maxLevel === 1]);
-  checks.push(['con policía cerca el nivel sube', after.maxLevel >= 2]);
+  checks.push(['con policía + luz el nivel sube', after.maxLevel >= 2]);
 
   for (let i = 0; i < 40; i++) sim.tick();
   let maxTraffic = 0;
@@ -105,14 +106,18 @@ const checks: Array<[string, boolean]> = [];
 {
   const city = new City(10, 10);
   const sim = new Simulation(city);
-  for (let x = 0; x < 6; x++) city.setType(x, 0, TileType.Road); // tramo de 6 calles
+  // Forma de L: fila horizontal (z=0, x 0..5) + columna vertical (x=0, z 1..5).
+  for (let x = 0; x < 6; x++) city.setType(x, 0, TileType.Road);
+  for (let z = 1; z < 6; z++) city.setType(0, z, TileType.Road);
   city.drainDirty();
 
-  const ok = sim.tryUpgrade(2, 0); // toco UNA casilla del tramo
-  let allAvenue = true;
-  for (let x = 0; x < 6; x++) if (city.getTile(x, 0).level !== 1) allAvenue = false;
-  console.log('[tramo] mejora desde 1 casilla → todo avenida:', ok && allAvenue);
-  checks.push(['mejorar carretera sube TODO el tramo', ok && allAvenue]);
+  sim.tryUpgrade(3, 0); // toco la parte HORIZONTAL
+  let horizUp = true;
+  for (let x = 0; x < 6; x++) if (city.getTile(x, 0).level !== 1) horizUp = false;
+  let vertStayed = true;
+  for (let z = 1; z < 6; z++) if (city.getTile(0, z).level !== 0) vertStayed = false;
+  console.log('[tramo recto] horizontal subió:', horizUp, '| vertical quedó igual:', vertStayed);
+  checks.push(['mejorar sube solo la línea recta, no la red entera', horizUp && vertStayed]);
 
   city.setType(8, 8, TileType.Police);
   sim.tick();
@@ -190,6 +195,61 @@ const checks: Array<[string, boolean]> = [];
   }
   console.log('[fusión] bloque 2×2 industrial → fábrica mediana:', merged);
   checks.push(['zonas industriales se fusionan en fábrica', merged]);
+}
+
+// 10) Servicios básicos (luz/agua/gas) necesarios para crecer de nivel.
+{
+  const city = new City(12, 12);
+  const sim = new Simulation(city);
+  city.setType(0, 1, TileType.Road);
+  city.setType(0, 0, TileType.Residential);
+  city.setType(0, 2, TileType.Police); // hay servicios, pero no básicos aún
+  sim.tick();
+  const noUtil = sim.inspect(0, 0).maxLevel;
+  city.placeBuilding(2, 0, TileType.PowerPlant, 2); // ahora hay luz/agua cerca
+  sim.tick();
+  const withUtil = sim.inspect(0, 0).maxLevel;
+  console.log('[básicos] maxLevel sin luz → con luz:', noUtil, '→', withUtil);
+  checks.push(['sin luz/agua no pasa de nivel 1 aunque haya policía', noUtil === 1]);
+  checks.push(['con luz/agua + servicios sube de nivel', withUtil >= 2]);
+}
+
+// 11) Guardado: serializar y restaurar conserva casillas y estado.
+{
+  const city = new City(8, 8);
+  const sim = new Simulation(city);
+  city.setType(2, 2, TileType.Residential);
+  city.setLevel(2, 2, 2);
+  city.placeBuilding(4, 4, TileType.Stadium, 2);
+  sim.money = 4321;
+  sim.month = 7;
+
+  const citySave = city.serialize();
+  const simSave = sim.serialize();
+
+  const city2 = new City(8, 8);
+  const sim2 = new Simulation(city2);
+  city2.load(citySave);
+  sim2.load(simSave);
+
+  const okTile = city2.getTile(2, 2).type === TileType.Residential && city2.getTile(2, 2).level === 2;
+  const okStadium =
+    city2.getTile(4, 4).type === TileType.Stadium && city2.getTile(4, 4).size === 2 && city2.isSubCell(5, 5);
+  console.log('[guardado] tile ok:', okTile, '| estadio ok:', okStadium, '| money:', sim2.money, '| mes:', sim2.month);
+  checks.push(['guardar/cargar conserva las casillas', okTile && okStadium]);
+  checks.push(['guardar/cargar conserva dinero y mes', sim2.money === 4321 && sim2.month === 7]);
+}
+
+// 12) Notificaciones: población sin energía → alerta de energía.
+{
+  const city = new City(8, 8);
+  const sim = new Simulation(city);
+  city.setType(0, 1, TileType.Road);
+  city.setType(0, 0, TileType.Residential);
+  for (let i = 0; i < 20; i++) sim.tick(); // crece a nivel 1 → hay población
+  const alerts = sim.getAlerts();
+  console.log('[alertas]', alerts.map((a) => a.id));
+  checks.push(['avisa cuando falta energía con población', alerts.some((a) => a.id === 'power')]);
 }
 
 let allOk = true;

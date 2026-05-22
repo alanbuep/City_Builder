@@ -24,6 +24,9 @@ const NAME: Record<TileType, string> = {
   [TileType.Police]: 'Policía 🚓',
   [TileType.Fire]: 'Bomberos 🚒',
   [TileType.Government]: 'Gobierno 🏛️',
+  [TileType.PowerPlant]: 'Central eléctrica ⚡',
+  [TileType.WaterTower]: 'Torre de agua 💧',
+  [TileType.GasPlant]: 'Planta de gas 🔥',
 };
 
 export interface InspectorCallbacks {
@@ -102,6 +105,10 @@ export class Inspector {
           ? '<i style="opacity:.8">⚠️ Saturada: construí otra cerca</i>'
           : 'Las zonas cercanas pueden crecer más alto.',
       );
+    } else if (def.produces) {
+      const KIND: Record<string, string> = { power: 'energía ⚡', water: 'agua 💧', gas: 'gas 🔥' };
+      lines.push(`Produce <b>${def.produces.amount}</b> de ${KIND[def.produces.kind]} para toda la ciudad.`);
+      lines.push('Las zonas la necesitan para crecer a niveles altos.');
     } else if (def.amenity) {
       lines.push('Sube el valor del suelo de las zonas cercanas. ✨');
     } else if (def.jobs) {
@@ -112,9 +119,16 @@ export class Inspector {
       lines.push(`Nivel: ${info.level} / ${MAX_LEVEL}`);
       lines.push(`${capLabel}: ${info.capacity}`);
       lines.push(`Acceso a calle: ${info.hasRoad ? 'Sí ✅' : 'No ⚠️'}`);
-      if (info.maxLevel < MAX_LEVEL) {
-        lines.push(`Máx. con servicios: nivel ${info.maxLevel}`);
-        lines.push('<i style="opacity:.8">Construí servicios cerca para crecer más</i>');
+      if (!info.cityHasPower) {
+        lines.push('<i style="opacity:.8">⚡ La ciudad necesita más energía para pasar de nivel 1</i>');
+      } else if (info.maxLevel < MAX_LEVEL) {
+        lines.push(`Máx. actual: nivel ${info.maxLevel}`);
+        const faltan = [
+          info.maxLevel < 2 ? 'servicios (policía/etc.)' : '',
+          !info.cityHasWater ? 'agua' : '',
+          !info.cityHasGas ? 'gas' : '',
+        ].filter(Boolean);
+        if (faltan.length) lines.push(`<i style="opacity:.8">Para crecer más: ${faltan.join(', ')}</i>`);
       }
       if (info.value > 0.001) lines.push(`Valor del suelo: +${info.value.toFixed(2)}`);
     }

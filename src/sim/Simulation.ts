@@ -27,6 +27,11 @@ export interface CityStats {
   unemployed: number;
   unemploymentRate: number;
   demand: Demand;
+  utilities: {
+    power: { supply: number; demand: number };
+    water: { supply: number; demand: number };
+    gas: { supply: number; demand: number };
+  };
 }
 
 /** Detalle de UNA casilla, para el panel inspector. */
@@ -38,6 +43,9 @@ export interface TileInfo {
   hasRoad: boolean;
   value: number; // valor del suelo (amenidades)
   coverage: number; // cobertura de servicios recibida
+  cityHasPower: boolean; // ¿la ciudad produce suficiente energía?
+  cityHasWater: boolean;
+  cityHasGas: boolean;
   maxLevel: number; // nivel máximo alcanzable con la cobertura actual
   canUpgrade: boolean;
   upgradeCost: number; // (carreteras) costo de mejorar TODO el tramo conectado
@@ -52,6 +60,21 @@ export interface TileInfo {
 }
 
 export type GameMode = 'auto' | 'manual';
+
+/** Un aviso para el jugador (algo falta o se puede mejorar). */
+export interface Alert {
+  id: string;
+  icon: string;
+  text: string;
+  level: 'warn' | 'info';
+}
+
+/** Estado de la simulación para guardar (lo derivado se recalcula al cargar). */
+export interface SimSave {
+  money: number;
+  month: number;
+  mode: GameMode;
+}
 
 // --- Parámetros de la simulación ---
 const CHILD_RATIO = 0.25;
@@ -90,6 +113,15 @@ export class Simulation {
   unemployed = 0;
 
   private totalUpkeep = 0;
+
+  // Servicios básicos: producción de toda la ciudad vs su consumo (= población).
+  powerSupply = 0;
+  waterSupply = 0;
+  gasSupply = 0;
+  hasPower = false;
+  hasWater = false;
+  hasGas = false;
+  worstCongestion = 0; // peor congestión de carretera (para avisos)
 
   private desirability: number[];
   private coverage: number[];
@@ -160,6 +192,7 @@ export class Simulation {
   inspect(x: number, z: number): TileInfo {
     const tile = this.city.getTile(x, z);
     const def = TILE_DEF[tile.type];
+    const serviceInf = def.service; // policía/bomberos/gobierno atienden población
     const w = this.city.width;
     const i = z * w + x;
     const hasRoad = this.city.hasRoadAccess(x, z);
@@ -187,6 +220,9 @@ export class Simulation {
       hasRoad,
       value: this.desirability[i],
       coverage: this.coverage[i],
+      cityHasPower: this.hasPower,
+      cityHasWater: this.hasWater,
+      cityHasGas: this.hasGas,
       maxLevel,
       canUpgrade,
       upgradeCost,
@@ -194,8 +230,9 @@ export class Simulation {
       roadCapacity,
       congestion: isRoad ? this.traffic[i] / roadCapacity : 0,
       roadSegmentSize: segmentSize,
-      serviceServed: def.service ? this.populationInRadius(x, z, def.service.radius) : 0,
-      serviceCapacity: def.service?.capacity ?? 0,
+      // Para el panel, las plantas (servicios básicos) se muestran como servicios.
+      serviceServed: serviceInf ? this.populationInRadius(x, z, serviceInf.radius) : 0,
+      serviceCapacity: serviceInf?.capacity ?? 0,
     };
   }
 
@@ -206,6 +243,74 @@ export class Simulation {
     return this.traffic[z * this.city.width + x] / cap;
   }
 
+  /** Casillas del tramo recto de carretera que pasa por (x,z) (para el resaltado). */
+  roadSegmentCells(x: number, z: number): Array<{ x: number; z: number }> {
+    return this.roadSegment(x, z);
+  }
+
+  // --- Guardado / avisos ---
+
+  serialize(): SimSave {
+    return { money: this.money, month: this.month, mode: this.mode };
+  }
+
+  load(data: SimSave): void {
+    this.money = data.money;
+    this.month = data.month;
+    this.mode = data.mode;
+    this.refresh();
+  }
+
+  /** Reinicia a una ciudad nueva (mantiene el modo de juego). */
+  reset(): void {
+    this.money = START_MONEY;
+    this.month = 0;
+    this.refresh();
+  }
+
+  /** Recalcula todo el estado derivado (tras cargar o limpiar la ciudad). */
+  refresh(): void {
+    this.recount();
+    this.computeDemographics();
+    this.computeDemand();
+    this.computeInfluence();
+    this.computeTraffic();
+  }
+
+  /** Avisos activos: qué le falta o conviene a la ciudad ahora mismo. */
+  getAlerts(): Alert[] {
+    const alerts: Alert[] = [];
+    const pop = this.population;
+    if (this.money < 0) {
+      alerts.push({ id: 'debt', icon: '💸', text: 'Déficit: estás perdiendo dinero', level: 'warn' });
+    }
+    if (pop > 0 && !this.hasPower) {
+      alerts.push({ id: 'power', icon: '⚡', text: 'Falta energía: las zonas no crecen', level: 'warn' });
+    }
+    if (pop > 0 && !this.hasWater) {
+      alerts.push({ id: 'water', icon: '💧', text: 'Falta agua para edificios altos', level: 'info' });
+    }
+    if (pop > 0 && !this.hasGas) {
+      alerts.push({ id: 'gas', icon: '🔥', text: 'Falta gas para edificios altos', level: 'info' });
+    }
+    if (this.adults > 0 && this.unemploymentRate > 0.3) {
+      alerts.push({ id: 'unemp', icon: '📉', text: 'Desempleo alto: hacen falta empleos', level: 'warn' });
+    }
+    if (this.worstCongestion > 1) {
+      alerts.push({ id: 'traffic', icon: '🚗', text: 'Tráfico congestionado: mejorá las calles', level: 'warn' });
+    }
+    if (this.demand.residential > 0.6) {
+      alerts.push({ id: 'dr', icon: '🏠', text: 'Alta demanda residencial', level: 'info' });
+    }
+    if (this.demand.commercial > 0.6) {
+      alerts.push({ id: 'dc', icon: '🏢', text: 'Alta demanda comercial', level: 'info' });
+    }
+    if (this.demand.industrial > 0.6) {
+      alerts.push({ id: 'di', icon: '🏭', text: 'Alta demanda industrial', level: 'info' });
+    }
+    return alerts;
+  }
+
   // --- Cálculos internos ---
 
   private recount(): void {
@@ -213,12 +318,20 @@ export class Simulation {
     let commercial = 0;
     let industrial = 0;
     let upkeep = 0;
+    let power = 0;
+    let water = 0;
+    let gas = 0;
 
     this.city.forEach((tile, x, z) => {
       if (this.city.isSubCell(x, z)) return; // no contar dos veces un edificio multi-casilla
       const def = TILE_DEF[tile.type];
       upkeep += def.upkeep ?? 0;
       industrial += def.jobs ?? 0; // empleos de las fábricas
+      if (def.produces) {
+        if (def.produces.kind === 'power') power += def.produces.amount;
+        else if (def.produces.kind === 'water') water += def.produces.amount;
+        else gas += def.produces.amount;
+      }
       switch (tile.type) {
         case TileType.Residential:
           pop += capacityOf(tile.type, tile.level);
@@ -236,6 +349,16 @@ export class Simulation {
     this.commercialJobs = commercial;
     this.industrialJobs = industrial;
     this.totalUpkeep = upkeep;
+
+    // Servicios básicos: hace falta producir al menos tanto como la población
+    // (y tener al menos una planta, si no la ciudad no tiene ese suministro).
+    this.powerSupply = power;
+    this.waterSupply = water;
+    this.gasSupply = gas;
+    const need = Math.max(1, pop);
+    this.hasPower = power >= need;
+    this.hasWater = water >= need;
+    this.hasGas = gas >= need;
   }
 
   private computeDemographics(): void {
@@ -314,6 +437,7 @@ export class Simulation {
   private computeTraffic(): void {
     this.traffic.fill(0);
     const w = this.city.width;
+    let worst = 0;
     this.city.forEach((tile, x, z) => {
       if (tile.type !== TileType.Road) return;
       let load = 0;
@@ -327,14 +451,19 @@ export class Simulation {
       add(x, z + 1);
       add(x, z - 1);
       this.traffic[z * w + x] = load;
+      const cap = ROAD_CAPACITY[Math.min(tile.level, ROAD_CAPACITY.length - 1)];
+      worst = Math.max(worst, load / cap);
     });
+    this.worstCongestion = worst;
   }
 
   private maxLevelFor(x: number, z: number): number {
     const cov = this.coverage[z * this.city.width + x];
     let max = 1;
-    if (cov >= COVERAGE_FOR_L2) max = 2;
-    if (cov >= COVERAGE_FOR_L3) max = 3;
+    // Nivel 2: la ciudad necesita energía + servicios (policía/etc.) cerca.
+    // Nivel 3: además agua y gas suficientes.
+    if (this.hasPower && cov >= COVERAGE_FOR_L2) max = 2;
+    if (this.hasPower && this.hasWater && this.hasGas && cov >= COVERAGE_FOR_L3) max = 3;
     return Math.min(max, MAX_LEVEL);
   }
 
@@ -351,35 +480,29 @@ export class Simulation {
     return 1 / (1 + over);
   }
 
-  /** Casillas de carretera conectadas (ortogonalmente) del MISMO nivel. */
+  /**
+   * El TRAMO RECTO de carretera (mismo nivel) que pasa por (x,z): avanza por el
+   * eje del clic (horizontal si conecta E/O, si no vertical) sin ramificarse en
+   * los cruces. Así mejorar una calle afecta solo esa línea recta, no toda la red.
+   */
   private roadSegment(x: number, z: number): Array<{ x: number; z: number }> {
     const start = this.city.getTile(x, z);
     if (start.type !== TileType.Road) return [];
     const level = start.level;
-    const w = this.city.width;
-    const out: Array<{ x: number; z: number }> = [];
-    const seen = new Set<number>([z * w + x]);
-    const stack: Array<{ x: number; z: number }> = [{ x, z }];
+    const sameRoad = (cx: number, cz: number) =>
+      this.city.inBounds(cx, cz) &&
+      this.city.getTile(cx, cz).type === TileType.Road &&
+      this.city.getTile(cx, cz).level === level;
 
-    while (stack.length) {
-      const c = stack.pop()!;
-      out.push(c);
-      const neighbors = [
-        { x: c.x + 1, z: c.z },
-        { x: c.x - 1, z: c.z },
-        { x: c.x, z: c.z + 1 },
-        { x: c.x, z: c.z - 1 },
-      ];
-      for (const n of neighbors) {
-        if (!this.city.inBounds(n.x, n.z)) continue;
-        const key = n.z * w + n.x;
-        if (seen.has(key)) continue;
-        const t = this.city.getTile(n.x, n.z);
-        if (t.type === TileType.Road && t.level === level) {
-          seen.add(key);
-          stack.push(n);
-        }
-      }
+    const out: Array<{ x: number; z: number }> = [{ x, z }];
+    const horizontal = sameRoad(x + 1, z) || sameRoad(x - 1, z);
+
+    if (horizontal) {
+      for (let cx = x + 1; sameRoad(cx, z); cx++) out.push({ x: cx, z });
+      for (let cx = x - 1; sameRoad(cx, z); cx--) out.push({ x: cx, z });
+    } else {
+      for (let cz = z + 1; sameRoad(x, cz); cz++) out.push({ x, z: cz });
+      for (let cz = z - 1; sameRoad(x, cz); cz--) out.push({ x, z: cz });
     }
     return out;
   }
@@ -479,6 +602,11 @@ export class Simulation {
       unemployed: this.unemployed,
       unemploymentRate: this.unemploymentRate,
       demand: this.demand,
+      utilities: {
+        power: { supply: this.powerSupply, demand: this.population },
+        water: { supply: this.waterSupply, demand: this.population },
+        gas: { supply: this.gasSupply, demand: this.population },
+      },
     };
   }
 }

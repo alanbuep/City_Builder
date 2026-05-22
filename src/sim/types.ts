@@ -23,6 +23,10 @@ export enum TileType {
   Police = 'police',
   Fire = 'fire',
   Government = 'government',
+  // Servicios básicos (luz/agua/gas): hacen falta para que las zonas crezcan alto:
+  PowerPlant = 'power',
+  WaterTower = 'water',
+  GasPlant = 'gas',
 }
 
 /** Nivel máximo de un edificio de zona (R/C/I). */
@@ -55,6 +59,15 @@ export interface Influence {
   capacity?: number; // (servicios) cuántos habitantes puede atender antes de saturarse
 }
 
+/** Servicios básicos que la ciudad produce/consume de forma global. */
+export type UtilityKind = 'power' | 'water' | 'gas';
+
+/** Lo que produce un edificio de servicios básicos (central, torre de agua...). */
+export interface Production {
+  kind: UtilityKind;
+  amount: number;
+}
+
 /** Definición de cada tipo: lo que cuesta, cómo se ve y qué efecto tiene. */
 export interface TileDef {
   cost: number; // costo de colocar
@@ -64,7 +77,8 @@ export interface TileDef {
   size?: number; // lado del footprint (1 = una casilla; 2 = 2×2; etc.)
   jobs?: number; // empleos industriales que aporta (fábricas)
   amenity?: Influence; // suma "valor del suelo"
-  service?: Influence; // suma "cobertura de servicios"
+  service?: Influence; // suma "cobertura de servicios" (policía/bomberos/gobierno)
+  produces?: Production; // genera un servicio básico para toda la ciudad (luz/agua/gas)
 }
 
 export const TILE_DEF: Record<TileType, TileDef> = {
@@ -86,6 +100,10 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Police]: { cost: 200, color: 0x1565c0, height: 0.9, upkeep: 4, service: { radius: 5, strength: 1.0, capacity: 250 } },
   [TileType.Fire]: { cost: 200, color: 0xc62828, height: 0.9, upkeep: 4, service: { radius: 5, strength: 1.0, capacity: 250 } },
   [TileType.Government]: { cost: 500, color: 0x546e7a, height: 1.4, upkeep: 8, size: 2, service: { radius: 7, strength: 1.5, capacity: 600 } },
+
+  [TileType.PowerPlant]: { cost: 500, color: 0xfdd835, height: 1.5, upkeep: 6, size: 2, produces: { kind: 'power', amount: 400 } },
+  [TileType.WaterTower]: { cost: 300, color: 0x29b6f6, height: 1.3, upkeep: 4, produces: { kind: 'water', amount: 350 } },
+  [TileType.GasPlant]: { cost: 350, color: 0xff7043, height: 1.2, upkeep: 4, produces: { kind: 'gas', amount: 320 } },
 };
 
 /** ¿Es una zona desarrollable (R/C/I)? */

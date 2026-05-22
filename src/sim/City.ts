@@ -1,5 +1,22 @@
 import { TileType, Tile, MAX_LEVEL } from './types';
 
+/** Una casilla construida, para guardar. Las vacías no se guardan. */
+export interface TileSave {
+  x: number;
+  z: number;
+  type: TileType;
+  level: number;
+  size: number;
+  anchor: { x: number; z: number } | null;
+}
+
+/** La ciudad serializada (solo las casillas no vacías). */
+export interface CitySave {
+  width: number;
+  height: number;
+  tiles: TileSave[];
+}
+
 /**
  * El estado lógico de la ciudad: una cuadrícula de casillas.
  *
@@ -139,5 +156,44 @@ export class City {
     }
     this.dirty.clear();
     return result;
+  }
+
+  // --- Guardado / carga ---
+
+  /** Guarda solo las casillas no vacías. */
+  serialize(): CitySave {
+    const tiles: TileSave[] = [];
+    this.forEach((tile, x, z) => {
+      if (tile.type !== TileType.Empty) {
+        tiles.push({ x, z, type: tile.type, level: tile.level, size: tile.size, anchor: tile.anchor });
+      }
+    });
+    return { width: this.width, height: this.height, tiles };
+  }
+
+  /** Vacía toda la grilla (y marca todo para redibujar). */
+  clear(): void {
+    for (let i = 0; i < this.tiles.length; i++) {
+      const t = this.tiles[i];
+      t.type = TileType.Empty;
+      t.level = 0;
+      t.anchor = null;
+      t.size = 1;
+      this.dirty.add(i);
+    }
+  }
+
+  /** Reemplaza el contenido por una ciudad guardada. */
+  load(data: CitySave): void {
+    this.clear();
+    for (const t of data.tiles) {
+      if (!this.inBounds(t.x, t.z)) continue;
+      const tile = this.tiles[this.index(t.x, t.z)];
+      tile.type = t.type;
+      tile.level = t.level;
+      tile.size = t.size ?? 1;
+      tile.anchor = t.anchor ?? null;
+      this.dirty.add(this.index(t.x, t.z));
+    }
   }
 }

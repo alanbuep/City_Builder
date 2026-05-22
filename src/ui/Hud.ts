@@ -2,7 +2,16 @@ import { CityStats, GameMode } from '../sim/Simulation';
 
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const START_YEAR = 2000;
-const BAR_HALF_PX = 26; // mitad de la altura útil de cada barra RCI
+const BAR_HALF_PX = 26;
+
+const RCI_INFO =
+  'Demanda RCI: cuánto quiere crecer cada tipo de zona — Residencial, Comercial e Industrial. ' +
+  'Barra hacia arriba (en color) = se quiere más de ese tipo (construilo). Hacia abajo (rojo) = sobra. ' +
+  'Es tu guía de qué construir.';
+const UTIL_INFO =
+  'Servicios básicos: lo que la ciudad PRODUCE vs lo que CONSUME (su población). ' +
+  'En rojo = falta, construí otra planta. La energía hace falta para que las zonas pasen de nivel 1; ' +
+  'agua y gas para que lleguen al nivel máximo.';
 
 export interface HudCallbacks {
   onTogglePause: () => void;
@@ -10,11 +19,7 @@ export interface HudCallbacks {
   onToggleMode: () => void;
 }
 
-/**
- * Panel de información en HTML (no en 3D): dinero, población, empleos, fecha,
- * barras de demanda RCI y controles de velocidad. El juego solo llama a
- * `update(stats)` cada frame y a `setPaused/setSpeed` cuando cambian.
- */
+/** Panel de información (dinero, población, demanda RCI, servicios básicos, controles). */
 export class Hud {
   private moneyEl!: HTMLElement;
   private popEl!: HTMLElement;
@@ -26,13 +31,23 @@ export class Hud {
   private barR!: HTMLElement;
   private barC!: HTMLElement;
   private barI!: HTMLElement;
+  private powerEl!: HTMLElement;
+  private waterEl!: HTMLElement;
+  private gasEl!: HTMLElement;
   private pauseBtn!: HTMLButtonElement;
   private speedBtns: HTMLButtonElement[] = [];
   private modeBtn!: HTMLButtonElement;
+  private tooltip: HTMLElement;
 
   constructor(container: HTMLElement, private callbacks: HudCallbacks) {
+    this.tooltip = document.createElement('div');
+    this.tooltip.className = 'tool-tip';
+    this.tooltip.style.display = 'none';
+    document.body.appendChild(this.tooltip);
+
     this.buildStats(container);
     this.buildRci(container);
+    this.buildUtilities(container);
     this.buildMode(container);
     this.buildControls(container);
   }
@@ -63,7 +78,7 @@ export class Hud {
     const panel = document.createElement('div');
     panel.className = 'panel';
     panel.innerHTML = `
-      <div style="text-align:center;margin-bottom:6px;opacity:0.8">Demanda</div>
+      <div class="panel-head"><span style="opacity:0.85">Demanda</span></div>
       <div class="rci">
         <div><div class="bar-wrap"><div class="mid"></div><div class="fill" id="bar-r"></div></div><div class="lbl">R</div></div>
         <div><div class="bar-wrap"><div class="mid"></div><div class="fill" id="bar-c"></div></div><div class="lbl">C</div></div>
@@ -71,9 +86,26 @@ export class Hud {
       </div>
     `;
     container.appendChild(panel);
+    this.addInfo(panel.querySelector('.panel-head')!, RCI_INFO);
     this.barR = panel.querySelector('#bar-r')!;
     this.barC = panel.querySelector('#bar-c')!;
     this.barI = panel.querySelector('#bar-i')!;
+  }
+
+  private buildUtilities(container: HTMLElement): void {
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <div class="panel-head"><span style="opacity:0.85">Servicios básicos</span></div>
+      <div class="util-row"><span>⚡ Energía</span><span class="util-val" id="util-power">—</span></div>
+      <div class="util-row"><span>💧 Agua</span><span class="util-val" id="util-water">—</span></div>
+      <div class="util-row"><span>🔥 Gas</span><span class="util-val" id="util-gas">—</span></div>
+    `;
+    container.appendChild(panel);
+    this.addInfo(panel.querySelector('.panel-head')!, UTIL_INFO);
+    this.powerEl = panel.querySelector('#util-power')!;
+    this.waterEl = panel.querySelector('#util-water')!;
+    this.gasEl = panel.querySelector('#util-gas')!;
   }
 
   private buildMode(container: HTMLElement): void {
@@ -109,11 +141,34 @@ export class Hud {
       this.speedBtns.push(btn);
       panel.appendChild(btn);
     }
-
     container.appendChild(panel);
   }
 
-  /** Refresca todos los números y barras. Se llama cada frame. */
+  /** Crea un botón ⓘ que muestra `text` al pasar el mouse (o al hacer click). */
+  private addInfo(host: HTMLElement, text: string): void {
+    const btn = document.createElement('button');
+    btn.className = 'hud-info';
+    btn.textContent = 'ⓘ';
+    btn.addEventListener('mouseenter', () => this.showTip(text, btn));
+    btn.addEventListener('click', () => this.showTip(text, btn));
+    btn.addEventListener('mouseleave', () => this.hideTip());
+    host.appendChild(btn);
+  }
+
+  private showTip(text: string, near: HTMLElement): void {
+    this.tooltip.textContent = text;
+    this.tooltip.style.display = 'block';
+    const r = near.getBoundingClientRect();
+    // El HUD está a la derecha: mostramos el tooltip hacia la izquierda.
+    this.tooltip.style.left = 'auto';
+    this.tooltip.style.right = `${window.innerWidth - r.left + 8}px`;
+    this.tooltip.style.top = `${r.top}px`;
+  }
+
+  private hideTip(): void {
+    this.tooltip.style.display = 'none';
+  }
+
   update(stats: CityStats): void {
     const year = START_YEAR + Math.floor(stats.month / 12);
     this.dateEl.textContent = `${MONTHS[stats.month % 12]} ${year}`;
@@ -128,15 +183,24 @@ export class Hud {
 
     const unempPct = Math.round(stats.unemploymentRate * 100);
     this.unempEl.textContent = `${unempPct}%`;
-    // Rojo si el desempleo es alto, verde si es bajo (y hay adultos).
     this.unempEl.style.color = stats.adults === 0 ? '#fff' : unempPct > 25 ? '#ff6b6b' : '#7CFC9A';
 
     this.setBar(this.barR, stats.demand.residential, '#4caf50');
     this.setBar(this.barC, stats.demand.commercial, '#2196f3');
     this.setBar(this.barI, stats.demand.industrial, '#ffc107');
+
+    this.setUtility(this.powerEl, stats.utilities.power);
+    this.setUtility(this.waterEl, stats.utilities.water);
+    this.setUtility(this.gasEl, stats.utilities.gas);
   }
 
-  /** Pinta una barra: hacia arriba (zona) si la demanda es +, abajo (rojo) si -. */
+  /** Muestra producción/consumo de un servicio básico, en verde si alcanza. */
+  private setUtility(el: HTMLElement, u: { supply: number; demand: number }): void {
+    el.textContent = `${u.supply} / ${u.demand}`;
+    const ok = u.supply >= Math.max(1, u.demand);
+    el.style.color = ok ? '#7CFC9A' : '#ff6b6b';
+  }
+
   private setBar(fill: HTMLElement, demand: number, color: string): void {
     const px = Math.round(Math.abs(demand) * BAR_HALF_PX);
     fill.style.height = `${px}px`;

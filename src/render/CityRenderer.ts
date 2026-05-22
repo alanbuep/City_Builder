@@ -54,11 +54,20 @@ export class CityRenderer {
     scene.add(this.hover);
 
     this.selected = new THREE.Mesh(
-      new THREE.BoxGeometry(grid.tileSize, 0.05, grid.tileSize),
-      new THREE.MeshBasicMaterial({ color: 0xffd54f, transparent: true, opacity: 0.45 }),
+      new THREE.BoxGeometry(grid.tileSize, 0.16, grid.tileSize),
+      new THREE.MeshBasicMaterial({ color: 0xffd54f, transparent: true, opacity: 0.6 }),
     );
     this.selected.visible = false;
+    this.selected.renderOrder = 2;
     scene.add(this.selected);
+  }
+
+  /** Anima los resaltados (pulso de la selección). Se llama cada frame. */
+  animate(timeMs: number): void {
+    if (this.selected.visible) {
+      const pulse = 0.45 + 0.3 * Math.sin(timeMs * 0.006);
+      (this.selected.material as THREE.MeshBasicMaterial).opacity = pulse;
+    }
   }
 
   private key(x: number, z: number): string {
@@ -139,25 +148,40 @@ export class CityRenderer {
     }
   }
 
-  setHover(coord: { x: number; z: number } | null): void {
+  /**
+   * Muestra el resaltado bajo el cursor. `size` = footprint del edificio a
+   * colocar (para ver el área que ocupará); `mode` lo pinta verde (válido),
+   * rojo (no se puede) o blanco (normal).
+   */
+  setHover(
+    coord: { x: number; z: number } | null,
+    size = 1,
+    mode: 'normal' | 'valid' | 'invalid' = 'normal',
+  ): void {
     if (!coord) {
       this.hover.visible = false;
       return;
     }
-    this.hover.position.set(tileCenterX(coord.x, this.grid), 0.02, tileCenterZ(coord.z, this.grid));
+    const mat = this.hover.material as THREE.MeshBasicMaterial;
+    mat.color.setHex(mode === 'valid' ? 0x66bb6a : mode === 'invalid' ? 0xef5350 : 0xffffff);
+    mat.opacity = mode === 'normal' ? 0.35 : 0.5;
+    this.hover.scale.set(size, 1, size);
+    const cx = (tileCenterX(coord.x, this.grid) + tileCenterX(coord.x + size - 1, this.grid)) / 2;
+    const cz = (tileCenterZ(coord.z, this.grid) + tileCenterZ(coord.z + size - 1, this.grid)) / 2;
+    this.hover.position.set(cx, 0.02, cz);
     this.hover.visible = true;
   }
 
-  setSelected(coord: { x: number; z: number } | null): void {
-    if (!coord) {
+  /** Resalta una región rectangular (footprint de un edificio o tramo de calle). */
+  setSelected(region: { x: number; z: number; w: number; h: number } | null): void {
+    if (!region) {
       this.selected.visible = false;
       return;
     }
-    const size = this.city.getTile(coord.x, coord.z).size;
-    this.selected.scale.set(size, 1, size);
-    const cx = (tileCenterX(coord.x, this.grid) + tileCenterX(coord.x + size - 1, this.grid)) / 2;
-    const cz = (tileCenterZ(coord.z, this.grid) + tileCenterZ(coord.z + size - 1, this.grid)) / 2;
-    this.selected.position.set(cx, 0.03, cz);
+    this.selected.scale.set(region.w, 1, region.h);
+    const cx = (tileCenterX(region.x, this.grid) + tileCenterX(region.x + region.w - 1, this.grid)) / 2;
+    const cz = (tileCenterZ(region.z, this.grid) + tileCenterZ(region.z + region.h - 1, this.grid)) / 2;
+    this.selected.position.set(cx, 0.08, cz);
     this.selected.visible = true;
   }
 }
