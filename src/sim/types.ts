@@ -48,6 +48,11 @@ export enum TileType {
   Casino = 'casino',
   Cinema = 'cinema',
   AmusementPark = 'amusement',
+  // Comunidad / hitos / transporte:
+  Church = 'church',
+  Library = 'library',
+  Monument = 'monument',
+  Airport = 'airport',
   // Obra en construcción: ocupa el terreno hasta que se completa y aparece el edificio real.
   Construction = 'construction',
 }
@@ -173,6 +178,11 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Casino]: { cost: 600, color: 0xffca28, height: 1.2, upkeep: 8, size: 2, shopJobs: 60, amenity: { radius: 3, strength: 0.5 }, income: 40, build: { cemento: 20, ladrillo: 20 } },
   [TileType.Cinema]: { cost: 200, color: 0x5c6bc0, height: 0.9, upkeep: 3, shopJobs: 25, amenity: { radius: 3, strength: 0.5 } },
   [TileType.AmusementPark]: { cost: 500, color: 0xec407a, height: 1.1, upkeep: 6, size: 2, shopJobs: 40, amenity: { radius: 6, strength: 1.2 }, build: { ladrillo: 30 } },
+
+  [TileType.Church]: { cost: 250, color: 0xefebe9, height: 1.3, upkeep: 3, amenity: { radius: 4, strength: 0.7 } },
+  [TileType.Library]: { cost: 300, color: 0x795548, height: 1.0, upkeep: 4, education: { radius: 6, strength: 1.2, capacity: 500 } },
+  [TileType.Monument]: { cost: 800, color: 0xd4af37, height: 2.2, upkeep: 6, size: 2, amenity: { radius: 6, strength: 1.4 }, build: { cemento: 40, ladrillo: 30 } },
+  [TileType.Airport]: { cost: 1200, color: 0x607d8a, height: 1.0, upkeep: 12, size: 3, shopJobs: 80, amenity: { radius: 6, strength: 1.0 }, income: 60, build: { cemento: 50, ladrillo: 40 } },
 
   [TileType.Construction]: { cost: 0, color: 0xffb74d, height: 0.3 }, // cartel/andamio de obra
 };

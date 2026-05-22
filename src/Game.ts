@@ -54,6 +54,11 @@ export class Game {
   private dragPath: DragStep[] = []; // trazo del arrastre actual (permite retroceder)
   private selected: Coord | null = null;
 
+  // Selección de carretera para mejorar: tramo recto elegido arrastrando.
+  private roadSelection: Coord[] = [];
+  private roadDragging = false;
+  private roadDragStart: Coord | null = null;
+
   // Reloj de simulación.
   private paused = false;
   private speed = 1;
@@ -98,6 +103,8 @@ export class Game {
     window.addEventListener('pointerup', () => {
       this.painting = false;
       this.dragPath = [];
+      this.roadDragging = false;
+      this.roadDragStart = null;
     });
 
     // Carga la última partida (persiste entre recargas) y activa el autoguardado.
@@ -113,7 +120,36 @@ export class Game {
   private onPointerMove(e: PointerEvent): void {
     const coord = this.picker.tileAt(e);
     this.updateHover(coord);
+    if (this.roadDragging && coord) {
+      this.updateRoadDrag(coord);
+      return;
+    }
     if (this.painting && coord) this.paintAt(coord);
+  }
+
+  /** Extiende el tramo recto de carretera seleccionado desde el inicio del arrastre. */
+  private updateRoadDrag(coord: Coord): void {
+    const start = this.roadDragStart!;
+    const cells: Coord[] = [{ x: start.x, z: start.z }];
+    const dx = coord.x - start.x;
+    const dz = coord.z - start.z;
+    const horiz = Math.abs(dx) >= Math.abs(dz);
+    const step = horiz ? Math.sign(dx) : Math.sign(dz);
+    if (step !== 0) {
+      let cx = start.x;
+      let cz = start.z;
+      const target = horiz ? coord.x : coord.z;
+      while ((horiz ? cx : cz) !== target) {
+        if (horiz) cx += step;
+        else cz += step;
+        if (!this.city.inBounds(cx, cz)) break;
+        if (this.city.getTile(cx, cz).type !== TileType.Road) break; // se corta en el primer no-calle
+        cells.push({ x: cx, z: cz });
+      }
+    }
+    this.roadSelection = cells;
+    this.selected = { x: start.x, z: start.z };
+    this.refreshSelection();
   }
 
   /** Resalta bajo el cursor; con un edificio grande, muestra TODO su footprint. */
@@ -175,10 +211,23 @@ export class Game {
     const coord = this.picker.tileAt(e);
     const tool = this.toolbar.current;
 
-    // Herramienta de selección: elegir casilla (o deseleccionar si es afuera).
+    // Herramienta de selección.
     if (tool === 'select') {
-      if (coord) this.select(coord);
-      else this.deselect();
+      if (coord && this.city.getTile(coord.x, coord.z).type === TileType.Road) {
+        // Carretera: empieza un arrastre para elegir el tramo a mejorar.
+        this.roadDragging = true;
+        this.roadDragStart = coord;
+        this.roadSelection = [coord];
+        this.selected = coord;
+        this.inspector.show();
+        this.refreshSelection();
+      } else if (coord) {
+        this.roadSelection = [];
+        this.select(coord);
+      } else {
+        this.roadSelection = [];
+        this.deselect();
+      }
       return;
     }
 
@@ -267,9 +316,8 @@ export class Game {
     if (!this.selected) return;
     const tile = this.city.getTile(this.selected.x, this.selected.z);
 
-    let region: { x: number; z: number; w: number; h: number };
     if (tile.type === TileType.Road) {
-      const cells = this.sim.roadSegmentCells(this.selected.x, this.selected.z);
+      const cells = this.roadSelection.length ? this.roadSelection : [this.selected];
       let minX = Infinity;
       let maxX = -Infinity;
       let minZ = Infinity;
@@ -280,23 +328,34 @@ export class Game {
         minZ = Math.min(minZ, c.z);
         maxZ = Math.max(maxZ, c.z);
       }
-      region = { x: minX, z: minZ, w: maxX - minX + 1, h: maxZ - minZ + 1 };
-    } else {
-      region = { x: this.selected.x, z: this.selected.z, w: tile.size, h: tile.size };
+      this.cityRenderer.setSelected({ x: minX, z: minZ, w: maxX - minX + 1, h: maxZ - minZ + 1 });
+      this.inspector.update(this.sim.inspect(this.selected.x, this.selected.z), this.sim.money, {
+        cells: cells.length,
+        cost: this.sim.roadUpgradeCost(cells),
+      });
+      return;
     }
 
+    const region = { x: this.selected.x, z: this.selected.z, w: tile.size, h: tile.size };
     this.cityRenderer.setSelected(region);
     this.inspector.update(this.sim.inspect(this.selected.x, this.selected.z), this.sim.money);
   }
 
   private deselect(): void {
     this.selected = null;
+    this.roadSelection = [];
     this.cityRenderer.setSelected(null);
     this.inspector.hide();
   }
 
   private upgradeSelected(): void {
-    if (this.selected) this.sim.tryUpgrade(this.selected.x, this.selected.z);
+    if (!this.selected) return;
+    const tile = this.city.getTile(this.selected.x, this.selected.z);
+    if (tile.type === TileType.Road) {
+      this.sim.upgradeRoadCells(this.roadSelection.length ? this.roadSelection : [this.selected]);
+    } else {
+      this.sim.tryUpgrade(this.selected.x, this.selected.z);
+    }
   }
 
   /** Da el OK a la obra seleccionada (cobra dinero + materiales y empieza a construir). */

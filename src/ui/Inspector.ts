@@ -53,6 +53,10 @@ const NAME: Record<TileType, string> = {
   [TileType.Casino]: 'Casino 🎰',
   [TileType.Cinema]: 'Cine 🎬',
   [TileType.AmusementPark]: 'Parque de diversiones 🎡',
+  [TileType.Church]: 'Iglesia ⛪',
+  [TileType.Library]: 'Biblioteca 📚',
+  [TileType.Monument]: 'Monumento 🗽',
+  [TileType.Airport]: 'Aeropuerto ✈️',
   [TileType.Construction]: 'Obra 🚧',
 };
 
@@ -74,6 +78,7 @@ export class Inspector {
   private startBtn: HTMLButtonElement;
   private upgradeBtn: HTMLButtonElement;
   private demolishBtn: HTMLButtonElement;
+  private roadStretch?: { cells: number; cost: number }; // tramo de carretera elegido a mano
 
   constructor(container: HTMLElement, callbacks: InspectorCallbacks) {
     this.root = document.createElement('div');
@@ -113,11 +118,12 @@ export class Inspector {
     this.root.style.display = 'none';
   }
 
-  update(info: TileInfo, money: number): void {
+  update(info: TileInfo, money: number, roadStretch?: { cells: number; cost: number }): void {
     if (info.construction) {
       this.renderConstruction(info);
       return;
     }
+    this.roadStretch = roadStretch;
     this.startBtn.style.display = 'none'; // solo aparece en las obras
 
     this.titleEl.textContent = NAME[info.type];
@@ -132,7 +138,8 @@ export class Inspector {
       const pct = Math.round(info.congestion * 100);
       const col = pct >= 100 ? '#ff6b6b' : pct >= 70 ? '#ffb74d' : '#7CFC9A';
       lines.push(`Congestión: <b style="color:${col}">${pct}%</b>`);
-      if (info.roadSegmentSize > 1) lines.push(`Tramo conectado: ${info.roadSegmentSize} casillas`);
+      const stretch = this.roadStretch?.cells ?? info.roadSegmentSize;
+      if (stretch > 1) lines.push(`Tramo elegido: ${stretch} casillas (arrastrá para elegir)`);
     } else if (def.storesMaterials) {
       lines.push('Corralón: almacena y distribuye materiales por su red de calles. 🏬');
       const s = info.storedMaterials;
@@ -250,7 +257,9 @@ export class Inspector {
       return;
     }
     this.upgradeBtn.style.display = '';
-    const affordable = money >= info.upgradeCost;
+    const roadCost = this.roadStretch?.cost ?? info.upgradeCost;
+    const cost = isRoad ? roadCost : info.upgradeCost;
+    const affordable = money >= cost;
 
     if (isRoad) {
       if (info.level >= ROAD_MAX_LEVEL) {
@@ -258,9 +267,9 @@ export class Inspector {
         this.upgradeBtn.disabled = true;
         this.upgradeBtn.title = '';
       } else {
-        this.upgradeBtn.textContent = `⬆️ Tramo → ${ROAD_LEVEL_NAME[info.level + 1]} ($${info.upgradeCost})`;
+        this.upgradeBtn.textContent = `⬆️ Mejorar tramo → ${ROAD_LEVEL_NAME[info.level + 1]} ($${cost})`;
         this.upgradeBtn.disabled = !affordable;
-        this.upgradeBtn.title = affordable ? 'Mejora todo el tramo conectado de una' : 'Dinero insuficiente';
+        this.upgradeBtn.title = affordable ? 'Mejora solo el tramo elegido (arrastrá para elegirlo)' : 'Dinero insuficiente';
       }
       return;
     }

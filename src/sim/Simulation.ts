@@ -482,6 +482,28 @@ export class Simulation {
     return this.roadSegment(x, z);
   }
 
+  /** Costo de mejorar un conjunto de casillas de carretera (solo las mejorables). */
+  roadUpgradeCost(cells: Array<{ x: number; z: number }>): number {
+    let cost = 0;
+    for (const c of cells) {
+      const t = this.city.getTile(c.x, c.z);
+      if (t.type === TileType.Road && t.level < ROAD_MAX_LEVEL) cost += ROAD_UPGRADE_COST * (t.level + 1);
+    }
+    return cost;
+  }
+
+  /** Mejora SOLO las casillas de carretera dadas (tramo elegido a mano). */
+  upgradeRoadCells(cells: Array<{ x: number; z: number }>): boolean {
+    const cost = this.roadUpgradeCost(cells);
+    if (cost <= 0 || this.money < cost) return false;
+    this.money -= cost;
+    for (const c of cells) {
+      const t = this.city.getTile(c.x, c.z);
+      if (t.type === TileType.Road && t.level < ROAD_MAX_LEVEL) this.city.setLevel(c.x, c.z, t.level + 1);
+    }
+    return true;
+  }
+
   // --- Guardado / avisos ---
 
   serialize(): SimSave {

@@ -79,7 +79,7 @@ export const TECHS: TechDef[] = [
     desc: 'Museos, centros comerciales y universidad: cultura, empleo y educación superior.',
     metric: 'population',
     target: 180,
-    unlocks: [TileType.Museum, TileType.ShoppingMall, TileType.University],
+    unlocks: [TileType.Museum, TileType.ShoppingMall, TileType.University, TileType.Church, TileType.Library],
   },
   {
     id: 'leisure',
@@ -97,7 +97,7 @@ export const TECHS: TechDef[] = [
     desc: 'Un tesoro sólido habilita el gobierno y grandes obras como el estadio.',
     metric: 'money',
     target: 20000,
-    unlocks: [TileType.Government, TileType.Stadium],
+    unlocks: [TileType.Government, TileType.Stadium, TileType.Monument],
   },
   {
     id: 'bigindustry',
@@ -115,7 +115,7 @@ export const TECHS: TechDef[] = [
     desc: 'Hoteles y torres de oficinas, el sello de una gran ciudad.',
     metric: 'population',
     target: 600,
-    unlocks: [TileType.Hotel, TileType.OfficeTower],
+    unlocks: [TileType.Hotel, TileType.OfficeTower, TileType.Airport],
   },
 ];
 

@@ -435,6 +435,34 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['una calle saturada sugiere mejora (💡)', markers.some((m) => m.x === 1 && m.z === 1 && m.kind === 'upgrade')]);
 }
 
+// 21) Carretera: mejorar SOLO el tramo elegido (no todo). Biblioteca: educación.
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 6; x++) city.setType(x, 0, TileType.Road);
+  city.drainDirty();
+  const before = sim.money;
+  const ok = sim.upgradeRoadCells([{ x: 1, z: 0 }, { x: 2, z: 0 }]); // solo 2 de 6 casillas
+  console.log('[carretera] tramo elegido ok:', ok, '| (1,0):', city.getTile(1, 0).level, '| (3,0):', city.getTile(3, 0).level);
+  checks.push([
+    'mejora solo el tramo elegido (no toda la calle)',
+    ok && city.getTile(1, 0).level === 1 && city.getTile(2, 0).level === 1 && city.getTile(0, 0).level === 0 && city.getTile(3, 0).level === 0,
+  ]);
+  checks.push(['cobra por casilla del tramo', sim.money === before - 2 * 120]);
+
+  const c2 = new City(10, 10);
+  const s2 = new Simulation(c2);
+  for (let x = 0; x < 10; x++) {
+    c2.setType(x, 1, TileType.Road);
+    c2.setType(x, 0, TileType.Residential);
+  }
+  c2.setType(2, 2, TileType.Library);
+  c2.drainDirty();
+  s2.tick();
+  console.log('[biblioteca] educación cercana:', s2.inspect(2, 0).education.toFixed(2));
+  checks.push(['la biblioteca da cobertura educativa', s2.inspect(2, 0).education > 0]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);
