@@ -107,8 +107,10 @@ export const MATERIAL_PRICE: Record<Material, number> = {
   electronica: 25,
 };
 
-/** Nivel máximo de un edificio de zona (R/C/I). */
+/** Nivel máximo de una zona comercial/industrial. */
 export const MAX_LEVEL = 3;
+/** Las zonas residenciales pueden seguir creciendo hasta rascacielos (niveles 4-5). */
+export const RES_MAX_LEVEL = 5;
 
 /** Carreteras: niveles, capacidad de tráfico y nombres. */
 export const ROAD_MAX_LEVEL = 2;
@@ -253,6 +255,24 @@ export function isZone(type: TileType): boolean {
 }
 
 /**
+ * Nivel estructural máximo que puede alcanzar un tipo de casilla:
+ * - Residencial: hasta rascacielos (RES_MAX_LEVEL).
+ * - Carreteras: ROAD_MAX_LEVEL.
+ * - El resto (comercio/industria): MAX_LEVEL.
+ */
+export function maxLevelOf(type: TileType): number {
+  if (type === TileType.Residential) return RES_MAX_LEVEL;
+  if (type === TileType.Road) return ROAD_MAX_LEVEL;
+  return MAX_LEVEL;
+}
+
+/**
+ * Habitantes por nivel de una zona residencial. Los niveles altos (rascacielos)
+ * concentran mucha más gente que un edificio bajo — son las "torres gigantes".
+ */
+export const RES_CAPACITY = [0, 10, 22, 40, 75, 130];
+
+/**
  * Capacidad de una casilla: habitantes (residencial) o empleos (comercial /
  * industrial), según su nivel. El resto no aporta.
  */
@@ -260,7 +280,7 @@ export function capacityOf(type: TileType, level: number): number {
   if (level <= 0) return 0;
   switch (type) {
     case TileType.Residential:
-      return level * 10;
+      return RES_CAPACITY[Math.min(level, RES_CAPACITY.length - 1)];
     case TileType.Commercial:
       return level * 6;
     case TileType.Industrial:

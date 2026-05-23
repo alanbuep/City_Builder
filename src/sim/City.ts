@@ -1,4 +1,4 @@
-import { TileType, Tile, MAX_LEVEL } from './types';
+import { TileType, Tile, maxLevelOf } from './types';
 
 /** Una casilla construida, para guardar. Las vacías no se guardan. */
 export interface TileSave {
@@ -129,7 +129,7 @@ export class City {
 
   setLevel(x: number, z: number, level: number): void {
     const tile = this.tiles[this.index(x, z)];
-    const clamped = Math.max(0, Math.min(MAX_LEVEL, level));
+    const clamped = Math.max(0, Math.min(maxLevelOf(tile.type), level));
     if (tile.level === clamped) return;
     tile.level = clamped;
     this.dirty.add(this.index(x, z));

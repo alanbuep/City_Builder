@@ -154,6 +154,17 @@ export class MaterialSystem {
     return true;
   }
 
+  /** Cuánto hay disponible de cada material para construir en (x,z): corralones de la red (+ reserva si no exige corralón). */
+  availableForBuild(city: City, x: number, z: number, size: number, needsYard: boolean): Record<Material, number> {
+    const comp = this.componentOfFootprint(city, x, z, size);
+    const out = emptyBag();
+    for (const m of MATERIALS) {
+      const inYards = comp >= 0 ? this.compStock(comp, m) : 0;
+      out[m] = needsYard ? inYards : inYards + this.reserve[m];
+    }
+    return out;
+  }
+
   /** Descuenta los materiales de la receta (corralones de la red; reserva si se permite). */
   payBuild(city: City, x: number, z: number, size: number, recipe: MaterialBag, needsYard: boolean): void {
     const comp = this.componentOfFootprint(city, x, z, size);

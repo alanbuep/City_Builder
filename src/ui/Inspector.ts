@@ -3,6 +3,7 @@ import {
   TileType,
   TILE_DEF,
   isZone,
+  maxLevelOf,
   MAX_LEVEL,
   ROAD_MAX_LEVEL,
   ROAD_LEVEL_NAME,
@@ -227,17 +228,22 @@ export class Inspector {
       lines.push('Sube el valor del suelo de las zonas cercanas. ✨');
     } else {
       const capLabel = info.type === TileType.Residential ? 'Habitantes' : 'Empleos';
-      lines.push(`Nivel: ${info.level} / ${MAX_LEVEL}`);
+      const typeMax = maxLevelOf(info.type);
+      const isTower = info.type === TileType.Residential && info.level > MAX_LEVEL;
+      lines.push(`Nivel: ${info.level} / ${typeMax}${isTower ? ' — 🏙️ Rascacielos' : ''}`);
       lines.push(`${capLabel}: ${info.capacity}`);
       lines.push(`Acceso a calle: ${info.hasRoad ? 'Sí ✅' : 'No ⚠️'}`);
       if (!info.cityHasPower) {
         lines.push('<i style="opacity:.8">⚡ La ciudad necesita más energía para pasar de nivel 1</i>');
-      } else if (info.maxLevel < MAX_LEVEL) {
+      } else if (info.maxLevel < typeMax) {
         lines.push(`Máx. actual: nivel ${info.maxLevel}`);
         const faltan = [
           info.maxLevel < 2 ? 'servicios (policía/etc.)' : '',
           !info.cityHasWater ? 'agua' : '',
           !info.cityHasGas ? 'gas' : '',
+          info.type === TileType.Residential && info.maxLevel >= MAX_LEVEL
+            ? 'más valor del suelo y bienestar (parques, escuelas, salud, comida) para rascacielos'
+            : '',
         ].filter(Boolean);
         if (faltan.length) lines.push(`<i style="opacity:.8">Para crecer más: ${faltan.join(', ')}</i>`);
       }
@@ -262,7 +268,6 @@ export class Inspector {
   /** Panel de una obra en construcción: qué será, costo, progreso y botón Iniciar. */
   private renderConstruction(info: TileInfo): void {
     const c = info.construction!;
-    const def = TILE_DEF[c.target];
     this.titleEl.textContent = '🚧 Obra';
 
     const lines: string[] = [];
@@ -270,7 +275,24 @@ export class Inspector {
       lines.push(`Ampliando ${NAME[c.target]} a <b>nivel ${c.targetLevel}</b>`);
     } else {
       lines.push(`Construirá: <b>${NAME[c.target]}</b>`);
-      lines.push(`Costo: $${c.cost}${def.build ? ` + ${formatBag(def.build)}` : ''}`);
+      lines.push(`💰 Costo: <b>$${c.cost}</b>`);
+      // Materiales de la receta. Si está esperando el OK, muestro "tenés / necesitás"
+      // (verde si alcanza, rojo si falta); ya en obra, solo la receta.
+      const needs = c.needs;
+      if (needs && MATERIALS.some((m) => (needs[m] ?? 0) > 0)) {
+        if (c.status === 'planned') {
+          const parts = MATERIALS.filter((m) => (needs[m] ?? 0) > 0).map((m) => {
+            const need = needs[m]!;
+            const have = Math.floor(c.have?.[m] ?? 0);
+            const col = have >= need ? '#7CFC9A' : '#ff6b6b';
+            return `<span style="color:${col}">${have}/${need} ${MATERIAL_ICON[m]}</span>`;
+          });
+          lines.push(`🧱 Materiales (tenés/necesitás): ${parts.join(' · ')}`);
+          if (c.needsYard) lines.push('<i style="opacity:.8">Se toman de un corralón conectado por calle.</i>');
+        } else {
+          lines.push(`🧱 Materiales: ${formatBag(needs)}`);
+        }
+      }
     }
     if (c.status === 'building') {
       const pct = Math.round((c.progress / c.duration) * 100);
@@ -320,17 +342,20 @@ export class Inspector {
     }
 
     // Zona R/C/I.
-    if (info.level >= MAX_LEVEL) {
+    if (info.level >= maxLevelOf(info.type)) {
       this.upgradeBtn.textContent = '⬆️ Nivel máximo';
       this.upgradeBtn.disabled = true;
       this.upgradeBtn.title = '';
     } else {
-      this.upgradeBtn.textContent = `⬆️ Mejorar ($${info.upgradeCost})`;
+      const toTower = info.type === TileType.Residential && info.level >= MAX_LEVEL;
+      this.upgradeBtn.textContent = `⬆️ ${toTower ? 'Levantar rascacielos' : 'Mejorar'} ($${info.upgradeCost})`;
       this.upgradeBtn.disabled = !(info.canUpgrade && affordable);
       this.upgradeBtn.title = !info.hasRoad
         ? 'Necesita una carretera al lado'
         : info.level + 1 > info.maxLevel
-          ? 'Necesita servicios cerca'
+          ? toTower
+            ? 'Para rascacielos: más valor del suelo y bienestar cerca (parques, escuelas, salud, comida)'
+            : 'Necesita servicios cerca'
           : !affordable
             ? 'Dinero insuficiente'
             : '';

@@ -2,7 +2,7 @@
 // Correr con:  pnpm dlx tsx scripts/smoke.ts
 import { City } from '../src/sim/City';
 import { Simulation } from '../src/sim/Simulation';
-import { TileType, TILE_DEF } from '../src/sim/types';
+import { TileType, TILE_DEF, capacityOf } from '../src/sim/types';
 
 function zonedCity(): { city: City; sim: Simulation } {
   const city = new City(10, 10);
@@ -560,6 +560,44 @@ const checks: Array<[string, boolean]> = [];
     'la empresa tecnológica ahora exige acero + electrónica',
     (TILE_DEF[TileType.TechCompany].build?.acero ?? 0) > 0 && (TILE_DEF[TileType.TechCompany].build?.electronica ?? 0) > 0,
   ]);
+}
+
+// 26) Rascacielos residenciales: con servicios básicos + barrio deseable + bienestar,
+// una zona residencial supera el nivel 3; sin amenidades, topa en 3 (y el comercio siempre en 3).
+{
+  const city = new City(20, 20);
+  const sim = new Simulation(city);
+  city.setType(8, 9, TileType.Road);
+  city.setType(8, 8, TileType.Residential);
+  // Servicios básicos (luz/agua/gas) + cobertura fuerte (gobierno) → habilita nivel 3.
+  city.placeBuilding(0, 0, TileType.PowerPlant, 2);
+  city.setType(3, 0, TileType.WaterTower);
+  city.setType(5, 0, TileType.GasPlant);
+  city.placeBuilding(7, 6, TileType.Government, 2); // cobertura fuerte y cercana (la influencia sale del ancla)
+  city.drainDirty();
+  sim.tick();
+  const baseMax = sim.inspect(8, 8).maxLevel;
+  checks.push(['sin amenidades la residencia topa en nivel 3', baseMax === 3]);
+
+  // Barrio deseable (monumento + parque) y bienestar (escuela/hospital/mercado) → rascacielos.
+  city.placeBuilding(9, 6, TileType.Monument, 2);
+  city.setType(7, 8, TileType.Park);
+  city.setType(7, 9, TileType.School);
+  city.placeBuilding(10, 8, TileType.Hospital, 2);
+  city.placeBuilding(5, 8, TileType.Market, 2);
+  city.drainDirty();
+  sim.tick();
+  const towerMax = sim.inspect(8, 8).maxLevel;
+  console.log('[rascacielos] maxLevel base → con barrio:', baseMax, '→', towerMax);
+  checks.push(['con barrio deseable + bienestar la residencia llega a rascacielos (≥4)', towerMax >= 4]);
+
+  // Clamp por tipo: la residencia puede llegar a nivel 5; el comercio sigue topando en 3.
+  city.setLevel(8, 8, 5);
+  checks.push(['la residencia puede alcanzar el nivel 5', city.getTile(8, 8).level === 5]);
+  checks.push(['un rascacielos nivel 5 concentra 130 habitantes', capacityOf(TileType.Residential, 5) === 130]);
+  city.setType(0, 8, TileType.Commercial);
+  city.setLevel(0, 8, 5);
+  checks.push(['el comercio sigue topando en nivel 3', city.getTile(0, 8).level === 3]);
 }
 
 let allOk = true;

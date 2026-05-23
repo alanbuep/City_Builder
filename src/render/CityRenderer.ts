@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { City } from '../sim/City';
-import { TileType, Tile, TILE_DEF, isZone } from '../sim/types';
+import { TileType, Tile, TILE_DEF, isZone, MAX_LEVEL } from '../sim/types';
 import { GridSpec, tileCenterX, tileCenterZ } from '../grid';
 
 const ROAD_HEIGHTS = [0.06, 0.1, 0.14]; // calle / avenida / autopista
@@ -137,7 +137,16 @@ export class CityRenderer {
       if (tile.level <= 0) {
         return { color: base.clone().lerp(this.white, 0.55), height: LOT_HEIGHT, opacity: 0.6 };
       }
-      return { color: base, height: tile.level * HEIGHT_PER_LEVEL, opacity: 1 };
+      let height = tile.level * HEIGHT_PER_LEVEL;
+      let color = base;
+      // Rascacielos residenciales: por encima del nivel base crecen mucho más por
+      // nivel y se aclaran (efecto "torre de vidrio") para distinguirse a la vista.
+      if (tile.type === TileType.Residential && tile.level > MAX_LEVEL) {
+        const extra = tile.level - MAX_LEVEL;
+        height = MAX_LEVEL * HEIGHT_PER_LEVEL + extra * HEIGHT_PER_LEVEL * 1.9;
+        color = base.clone().lerp(this.white, 0.2 * extra);
+      }
+      return { color, height, opacity: 1 };
     }
 
     // Obra en construcción: cartel/andamio bajo y translúcido.

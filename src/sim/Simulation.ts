@@ -5,7 +5,9 @@ import {
   Influence,
   isZone,
   capacityOf,
+  maxLevelOf,
   Material,
+  MaterialBag,
   MAX_LEVEL,
   ROAD_MAX_LEVEL,
   ROAD_CAPACITY,
@@ -96,6 +98,9 @@ export interface ConstructionInfo {
   cost: number;
   canStart: boolean;
   reason: string;
+  needs?: MaterialBag; // materiales que cuesta construirlo (receta)
+  have?: Record<Material, number>; // materiales disponibles en la red para esta obra
+  needsYard?: boolean; // requiere un corralón conectado por calle
 }
 
 /** Marcador flotante sobre una casilla (obra por iniciar / en curso / sugerencia). */
@@ -152,6 +157,12 @@ const MERGE_CHANCE = 0.2; // prob. por mes de que un bloque 2×2 de industria se
 const COVERAGE_FOR_L2 = 0.4;
 const COVERAGE_FOR_L3 = 0.9;
 const WELLBEING_GROWTH = 0.5; // cuánto acelera el crecimiento el bienestar (educación + salud)
+// Rascacielos residenciales (niveles 4-5): además del nivel 3, exigen barrio
+// deseable (valor del suelo por amenidades) y buen bienestar (educación+salud+comida).
+const DESIRABILITY_FOR_L4 = 0.5;
+const WELLBEING_FOR_L4 = 0.5;
+const DESIRABILITY_FOR_L5 = 1.0;
+const WELLBEING_FOR_L5 = 0.75;
 
 // --- Economía ---
 const START_MONEY = 10000;
@@ -266,7 +277,7 @@ export class Simulation {
     const key = this.siteKey(x, z);
     if (this.sites.has(key)) return false; // ya hay una obra en esta casilla
     const tile = this.city.getTile(x, z);
-    if (!isZone(tile.type) || tile.level >= MAX_LEVEL) return false;
+    if (!isZone(tile.type) || tile.level >= maxLevelOf(tile.type)) return false;
     const targetLevel = tile.level + 1;
     if (!free) {
       const cost = UPGRADE_BASE_COST * targetLevel;
@@ -379,7 +390,7 @@ export class Simulation {
       return true;
     }
 
-    if (!isZone(tile.type) || tile.level >= MAX_LEVEL) return false;
+    if (!isZone(tile.type) || tile.level >= maxLevelOf(tile.type)) return false;
     if (!this.city.hasRoadAccess(x, z)) return false;
     if (tile.level + 1 > this.maxLevelFor(x, z)) return false;
     // Mejorar a mano = abrir una obra de ampliación (cobra y construye con progreso).
@@ -406,7 +417,7 @@ export class Simulation {
       canUpgrade = tile.level < ROAD_MAX_LEVEL;
       upgradeCost = segmentSize * ROAD_UPGRADE_COST * (tile.level + 1);
     } else if (isZone(tile.type)) {
-      canUpgrade = tile.level < MAX_LEVEL && hasRoad && tile.level + 1 <= maxLevel;
+      canUpgrade = tile.level < maxLevelOf(tile.type) && hasRoad && tile.level + 1 <= maxLevel;
       upgradeCost = UPGRADE_BASE_COST * (tile.level + 1);
     }
 
@@ -453,9 +464,16 @@ export class Simulation {
   private constructionInfo(x: number, z: number): ConstructionInfo | undefined {
     const s = this.sites.get(this.siteKey(x, z));
     if (!s) return undefined;
-    const cost = TILE_DEF[s.target].cost;
+    const def = TILE_DEF[s.target];
+    const cost = def.cost;
     const okMoney = this.money >= cost;
     const okMaterials = this.buildMaterialsOk(s.x, s.z, s.size, s.target);
+    // Para edificios con receta, expongo cuánto pide y cuánto hay disponible en
+    // la red (corralones [+ reserva si no exige corralón]) → "tenés / necesitás".
+    let have: Record<Material, number> | undefined;
+    if (def.build) {
+      have = this.materials.availableForBuild(this.city, s.x, s.z, s.size, !!def.needsYard);
+    }
     return {
       target: s.target,
       targetLevel: s.targetLevel,
@@ -465,6 +483,9 @@ export class Simulation {
       cost,
       canStart: s.status === 'planned' && okMoney && okMaterials,
       reason: !okMoney ? 'Falta dinero' : !okMaterials ? 'Faltan materiales o un corralón conectado' : '',
+      needs: def.build,
+      have,
+      needsYard: !!def.needsYard,
     };
   }
 
@@ -486,7 +507,7 @@ export class Simulation {
         return;
       }
       // Zonas que podrían subir de nivel: sugerir solo en modo Constructor (en auto crecen solas).
-      if (this.mode === 'manual' && isZone(tile.type) && tile.level > 0 && tile.level < MAX_LEVEL) {
+      if (this.mode === 'manual' && isZone(tile.type) && tile.level > 0 && tile.level < maxLevelOf(tile.type)) {
         if (this.city.hasRoadAccess(x, z) && tile.level < this.maxLevelFor(x, z)) {
           out.push({ x, z, kind: 'upgrade' });
         }
@@ -869,13 +890,23 @@ export class Simulation {
   }
 
   private maxLevelFor(x: number, z: number): number {
-    const cov = this.coverage[z * this.city.width + x];
+    const i = z * this.city.width + x;
+    const cov = this.coverage[i];
     let max = 1;
     // Nivel 2: la ciudad necesita energía + servicios (policía/etc.) cerca.
     // Nivel 3: además agua y gas suficientes.
     if (this.hasPower && cov >= COVERAGE_FOR_L2) max = 2;
     if (this.hasPower && this.hasWater && this.hasGas && cov >= COVERAGE_FOR_L3) max = 3;
-    return Math.min(max, MAX_LEVEL);
+    const type = this.city.getTile(x, z).type;
+    // Rascacielos residenciales (niveles 4-5): partiendo del nivel 3, suben solo
+    // donde el barrio es deseable (amenidades) y tiene buen bienestar.
+    if (type === TileType.Residential && max >= 3) {
+      const value = this.desirability[i];
+      const wb = this.wellbeingAt(x, z);
+      if (value >= DESIRABILITY_FOR_L4 && wb >= WELLBEING_FOR_L4) max = 4;
+      if (value >= DESIRABILITY_FOR_L5 && wb >= WELLBEING_FOR_L5) max = 5;
+    }
+    return Math.min(max, maxLevelOf(type));
   }
 
   private trafficFactor(x: number, z: number): number {
