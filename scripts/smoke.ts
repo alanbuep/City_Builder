@@ -499,6 +499,21 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['la terminal exporta el excedente y da renta', exp > 0]);
 }
 
+// 23) Casas de comida: dan cobertura de "comida" a las zonas cercanas.
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 10; x++) {
+    city.setType(x, 1, TileType.Road);
+    city.setType(x, 0, TileType.Residential);
+  }
+  city.setType(2, 2, TileType.Restaurant);
+  city.drainDirty();
+  sim.tick();
+  console.log('[comida] cobertura cercana:', sim.inspect(2, 0).food.toFixed(2));
+  checks.push(['el restaurante da cobertura de comida cercana', sim.inspect(2, 0).food > 0]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);

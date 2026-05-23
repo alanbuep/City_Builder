@@ -52,6 +52,7 @@ export interface TileInfo {
   coverage: number; // cobertura de servicios recibida
   education: number; // cobertura educativa recibida
   health: number; // cobertura de salud recibida
+  food: number; // cobertura de comida recibida
   cityHasPower: boolean; // ¿la ciudad produce suficiente energía?
   cityHasWater: boolean;
   cityHasGas: boolean;
@@ -190,10 +191,12 @@ export class Simulation {
   private coverage: number[];
   private education: number[];
   private health: number[];
+  private food: number[];
   private traffic: number[];
   private bonusIncome = 0; // renta fija de edificios (casino, etc.)
   eduCoverageAvg = 0; // cobertura educativa media sobre las zonas residenciales
   healthCoverageAvg = 0;
+  foodCoverageAvg = 0;
 
   // Tecnología: hitos ya logrados + cola de los recién desbloqueados (para avisar).
   private unlocked = new Set<string>();
@@ -212,6 +215,7 @@ export class Simulation {
     this.coverage = new Array(n).fill(0);
     this.education = new Array(n).fill(0);
     this.health = new Array(n).fill(0);
+    this.food = new Array(n).fill(0);
     this.traffic = new Array(n).fill(0);
     this.materials = new MaterialSystem(city.width, city.height);
   }
@@ -376,8 +380,8 @@ export class Simulation {
   inspect(x: number, z: number): TileInfo {
     const tile = this.city.getTile(x, z);
     const def = TILE_DEF[tile.type];
-    // Cobertura que atiende población: servicios, educación o salud.
-    const serviceInf = def.service ?? def.education ?? def.health;
+    // Cobertura que atiende población: servicios, educación, salud o comida.
+    const serviceInf = def.service ?? def.education ?? def.health ?? def.food;
     const w = this.city.width;
     const i = z * w + x;
     const hasRoad = this.city.hasRoadAccess(x, z);
@@ -407,6 +411,7 @@ export class Simulation {
       coverage: this.coverage[i],
       education: this.education[i],
       health: this.health[i],
+      food: this.food[i],
       cityHasPower: this.hasPower,
       cityHasWater: this.hasWater,
       cityHasGas: this.hasGas,
@@ -653,6 +658,9 @@ export class Simulation {
     if (pop > 40 && this.healthCoverageAvg < 0.3) {
       alerts.push({ id: 'health', icon: '🏥', text: 'Falta salud: construí hospitales o clínicas', level: 'info' });
     }
+    if (pop > 50 && this.foodCoverageAvg < 0.3) {
+      alerts.push({ id: 'food', icon: '🍽️', text: 'Falta comida: sumá cafés, restaurantes o un mercado', level: 'info' });
+    }
     if (this.demand.residential > 0.6) {
       alerts.push({ id: 'dr', icon: '🏠', text: 'Alta demanda residencial', level: 'info' });
     }
@@ -774,17 +782,19 @@ export class Simulation {
     this.coverage.fill(0);
     this.education.fill(0);
     this.health.fill(0);
+    this.food.fill(0);
     this.city.forEach((tile, x, z) => {
       if (this.city.isSubCell(x, z)) return; // la influencia emana solo del ancla
       const def = TILE_DEF[tile.type];
       if (def.amenity) {
         this.spread(this.desirability, x, z, def.amenity.radius, def.amenity.strength);
       }
-      // Servicios, educación y salud: cobertura radial que se diluye si se satura.
+      // Servicios, educación, salud y comida: cobertura radial que se diluye si se satura.
       for (const [inf, field] of [
         [def.service, this.coverage],
         [def.education, this.education],
         [def.health, this.health],
+        [def.food, this.food],
       ] as const) {
         if (!inf) continue;
         const factor = this.serviceLoadFactor(x, z, inf);
@@ -794,26 +804,29 @@ export class Simulation {
     this.computeWellbeing();
   }
 
-  /** Promedia educación y salud sobre las zonas residenciales (para avisos). */
+  /** Promedia educación, salud y comida sobre las zonas residenciales (para avisos). */
   private computeWellbeing(): void {
     const w = this.city.width;
     let edu = 0;
     let hea = 0;
+    let foo = 0;
     let homes = 0;
     this.city.forEach((tile, x, z) => {
       if (tile.type !== TileType.Residential || tile.level <= 0) return;
       homes++;
       edu += Math.min(1, this.education[z * w + x]);
       hea += Math.min(1, this.health[z * w + x]);
+      foo += Math.min(1, this.food[z * w + x]);
     });
     this.eduCoverageAvg = homes > 0 ? edu / homes : 0;
     this.healthCoverageAvg = homes > 0 ? hea / homes : 0;
+    this.foodCoverageAvg = homes > 0 ? foo / homes : 0;
   }
 
-  /** Bono de crecimiento por bienestar (educación + salud) en una casilla. */
+  /** Bono de crecimiento por bienestar (educación + salud + comida) en una casilla. */
   private wellbeingAt(x: number, z: number): number {
     const i = z * this.city.width + x;
-    return (Math.min(1, this.education[i]) + Math.min(1, this.health[i])) / 2;
+    return (Math.min(1, this.education[i]) + Math.min(1, this.health[i]) + Math.min(1, this.food[i])) / 3;
   }
 
   /** Eficacia de un servicio: 1 si no está saturado, menos si sobra población. */

@@ -59,6 +59,10 @@ const NAME: Record<TileType, string> = {
   [TileType.Airport]: 'Aeropuerto ✈️',
   [TileType.Hardware]: 'Ferretería 🔧',
   [TileType.ExportTerminal]: 'Terminal de exportación 🚢',
+  [TileType.Cafe]: 'Café ☕',
+  [TileType.Diner]: 'Casa de comidas 🍔',
+  [TileType.Restaurant]: 'Restaurante 🍽️',
+  [TileType.Market]: 'Mercado 🛒',
   [TileType.Construction]: 'Obra 🚧',
 };
 
@@ -177,12 +181,19 @@ export class Inspector {
       lines.push('<i style="opacity:.8">Ajustá con ➖/➕. Necesita un corralón conectado por calle.</i>');
       this.exMinusBtn.style.display = '';
       this.exPlusBtn.style.display = '';
-    } else if (def.service || def.education || def.health) {
-      const label = def.education ? 'cobertura educativa 🎓' : def.health ? 'cobertura de salud 🏥' : 'cobertura de servicios 🛡️';
+    } else if (def.service || def.education || def.health || def.food) {
+      const label = def.education
+        ? 'cobertura educativa 🎓'
+        : def.health
+          ? 'cobertura de salud 🏥'
+          : def.food
+            ? 'comida 🍽️'
+            : 'cobertura de servicios 🛡️';
       lines.push(`Brinda ${label}.`);
       const over = info.serviceServed > info.serviceCapacity;
       const col = over ? '#ff6b6b' : '#7CFC9A';
       lines.push(`Atiende: <b style="color:${col}">${info.serviceServed} / ${info.serviceCapacity}</b> hab.`);
+      if (def.shopJobs) lines.push(`Empleos comerciales: ${def.shopJobs}`);
       lines.push(
         over
           ? '<i style="opacity:.8">⚠️ Saturada: construí otra cerca</i>'
@@ -224,7 +235,7 @@ export class Inspector {
       if (info.value > 0.001) lines.push(`Valor del suelo: +${info.value.toFixed(2)}`);
       if (info.type === TileType.Residential) {
         const pct = (v: number) => `${Math.round(Math.min(1, v) * 100)}%`;
-        lines.push(`🎓 Educación: ${pct(info.education)} · 🏥 Salud: ${pct(info.health)}`);
+        lines.push(`🎓 ${pct(info.education)} · 🏥 ${pct(info.health)} · 🍽️ ${pct(info.food)}`);
       }
     }
     if (def.build) {

@@ -43,7 +43,7 @@ export const TECHS: TechDef[] = [
     desc: 'Bomberos y red de agua para una ciudad más segura y densa.',
     metric: 'population',
     target: 40,
-    unlocks: [TileType.Fire, TileType.WaterTower],
+    unlocks: [TileType.Fire, TileType.WaterTower, TileType.Cafe, TileType.Diner],
   },
   {
     id: 'welfare',
@@ -52,7 +52,7 @@ export const TECHS: TechDef[] = [
     desc: 'Escuelas, clínicas y hospitales: educación y salud para que la ciudad crezca sana.',
     metric: 'population',
     target: 90,
-    unlocks: [TileType.School, TileType.Clinic, TileType.Hospital],
+    unlocks: [TileType.School, TileType.Clinic, TileType.Hospital, TileType.Market],
   },
   {
     id: 'industry2',
@@ -79,7 +79,7 @@ export const TECHS: TechDef[] = [
     desc: 'Museos, centros comerciales y universidad: cultura, empleo y educación superior.',
     metric: 'population',
     target: 180,
-    unlocks: [TileType.Museum, TileType.ShoppingMall, TileType.University, TileType.Church, TileType.Library],
+    unlocks: [TileType.Museum, TileType.ShoppingMall, TileType.University, TileType.Church, TileType.Library, TileType.Restaurant],
   },
   {
     id: 'leisure',

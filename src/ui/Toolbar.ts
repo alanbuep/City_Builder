@@ -98,6 +98,15 @@ const CATEGORIES: Category[] = [
     ],
   },
   {
+    label: '🍽️ Comida',
+    tools: [
+      { tool: TileType.Cafe, label: '☕ Café', desc: 'Cobertura de comida chica + 8 empleos. La población necesita comida cerca para crecer mejor.' },
+      { tool: TileType.Diner, label: '🍔 Casa de comidas', desc: 'Comida rápida: buena cobertura de comida (radio 5) + 15 empleos.' },
+      { tool: TileType.Restaurant, label: '🍽️ Restaurante', desc: 'Más empleos (25) y sube el valor del suelo, además de cobertura de comida.' },
+      { tool: TileType.Market, label: '🛒 Mercado', desc: 'Edificio 2×2. Gran cobertura de comida (radio 7) + 40 empleos.' },
+    ],
+  },
+  {
     label: '🌳 Amenidades',
     tools: [
       { tool: TileType.Park, label: '🌳 Parque', desc: 'Sube el valor del suelo en un radio chico → las zonas cercanas crecen más rápido.' },

@@ -56,6 +56,11 @@ export enum TileType {
   // Comercio de materiales / exportación:
   Hardware = 'hardware', // Ferretería (vende materiales del corralón a la ciudad)
   ExportTerminal = 'export', // Terminal de exportación (vende el excedente al exterior)
+  // Casas de comida (comercio + cobertura de comida, una necesidad de la población):
+  Cafe = 'cafe',
+  Diner = 'diner',
+  Restaurant = 'restaurant',
+  Market = 'market',
   // Obra en construcción: ocupa el terreno hasta que se completa y aparece el edificio real.
   Construction = 'construction',
 }
@@ -134,6 +139,7 @@ export interface TileDef {
   service?: Influence; // suma "cobertura de servicios" (policía/bomberos/gobierno)
   education?: Influence; // suma "cobertura educativa" (escuela/universidad)
   health?: Influence; // suma "cobertura de salud" (hospital/clínica)
+  food?: Influence; // suma "cobertura de comida" (cafés/restaurantes/mercados)
   income?: number; // renta fija mensual que genera (p. ej. casino)
   produces?: Production; // genera un servicio básico para toda la ciudad (luz/agua/gas)
   // --- Cadena de materiales ---
@@ -197,6 +203,11 @@ export const TILE_DEF: Record<TileType, TileDef> = {
 
   [TileType.Hardware]: { cost: 250, color: 0xff8f00, height: 0.9, upkeep: 3, shopJobs: 20, sellsMaterials: true },
   [TileType.ExportTerminal]: { cost: 500, color: 0x455a64, height: 0.9, upkeep: 5, size: 2, shopJobs: 15, exportsMaterials: true },
+
+  [TileType.Cafe]: { cost: 120, color: 0x6d4c41, height: 0.7, upkeep: 2, shopJobs: 8, food: { radius: 4, strength: 0.6, capacity: 250 }, amenity: { radius: 2, strength: 0.3 } },
+  [TileType.Diner]: { cost: 180, color: 0xf4511e, height: 0.8, upkeep: 3, shopJobs: 15, food: { radius: 5, strength: 0.9, capacity: 400 }, amenity: { radius: 2, strength: 0.3 } },
+  [TileType.Restaurant]: { cost: 300, color: 0xc2185b, height: 1.0, upkeep: 4, shopJobs: 25, food: { radius: 5, strength: 1.0, capacity: 400 }, amenity: { radius: 3, strength: 0.6 } },
+  [TileType.Market]: { cost: 400, color: 0x43a047, height: 1.0, upkeep: 5, size: 2, shopJobs: 40, food: { radius: 7, strength: 1.2, capacity: 800 }, amenity: { radius: 2, strength: 0.2 } },
 
   [TileType.Construction]: { cost: 0, color: 0xffb74d, height: 0.3 }, // cartel/andamio de obra
 };
