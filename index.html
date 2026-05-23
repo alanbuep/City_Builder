@@ -25,6 +25,9 @@
         display: flex; flex-direction: column; gap: 8px; width: 220px;
         background: rgba(0, 0, 0, 0.55);
         padding: 8px; border-radius: 10px; backdrop-filter: blur(4px);
+        /* Vive en la parte superior de la columna izquierda; si una categoría
+           tiene muchos edificios, hace scroll en vez de chocar con los avisos. */
+        max-height: calc(100vh - 300px); overflow-y: auto;
       }
       .tool-cats { display: flex; flex-wrap: wrap; gap: 4px; }
       .cat {
@@ -124,6 +127,9 @@
         position: fixed; bottom: 52px; left: 12px; z-index: 12;
         display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
         max-width: 300px;
+        /* Vive en la parte inferior de la columna izquierda; acotado para no
+           subir hasta el toolbar (que vive arriba). */
+        max-height: 200px; overflow-y: auto;
       }
       .notif {
         display: flex; gap: 8px; align-items: center;

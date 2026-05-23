@@ -1,7 +1,10 @@
 import { Alert } from '../sim/Simulation';
 
+/** Cuántos avisos mostrar a la vez (los demás se resumen en "+N más"). */
+const MAX_VISIBLE = 5;
+
 /**
- * Muestra los avisos activos (qué le falta a la ciudad) abajo a la derecha.
+ * Muestra los avisos activos (qué le falta a la ciudad) abajo a la izquierda.
  * Solo se redibuja cuando cambia el conjunto de avisos (evita parpadeo).
  */
 export class Notifications {
@@ -25,9 +28,13 @@ export class Notifications {
     const key = alerts.map((a) => a.id).join(',');
     if (key === this.lastKey) return; // sin cambios
     this.lastKey = key;
-    this.root.innerHTML = alerts
+    const visible = alerts.slice(0, MAX_VISIBLE);
+    const extra = alerts.length - visible.length;
+    let html = visible
       .map((a) => `<div class="notif ${a.level}"><span>${a.icon}</span><span>${a.text}</span></div>`)
       .join('');
+    if (extra > 0) html += `<div class="notif info"><span>⋯</span><span>+${extra} aviso${extra > 1 ? 's' : ''} más</span></div>`;
+    this.root.innerHTML = html;
   }
 
   /** Aviso temporal arriba al centro (p. ej. un desbloqueo). Desaparece solo. */
