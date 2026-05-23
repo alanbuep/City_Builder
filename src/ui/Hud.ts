@@ -260,7 +260,17 @@ export class Hud {
     this.setUtility(this.gasEl, stats.utilities.gas);
 
     for (const m of MATERIALS) {
-      this.matEls[m].textContent = Math.round(stats.materials.totals[m]).toLocaleString('es');
+      const total = Math.round(stats.materials.totals[m]);
+      const p = Math.round(stats.materials.produced[m]);
+      const c = Math.round(stats.materials.consumed[m]);
+      let flow = '';
+      if (p > 0 || c > 0) {
+        const net = p - c;
+        const col = net > 0 ? '#7CFC9A' : net < 0 ? '#ff6b6b' : '#bbb';
+        // Ritmo del mes: lo que se produjo y lo que se consumió (insumos + ventas).
+        flow = ` <span style="font-size:10px; color:${col}">(+${p} −${c})</span>`;
+      }
+      this.matEls[m].innerHTML = `${total.toLocaleString('es')}${flow}`;
     }
     const n = stats.materials.corralones;
     this.matCapEl.textContent = n > 0 ? `${n} corralón${n > 1 ? 'es' : ''} · ${CORRALON_CAP} c/u` : 'sin corralón (solo reserva)';

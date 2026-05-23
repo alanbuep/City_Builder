@@ -42,6 +42,8 @@ const keyOf = (x: number, z: number) => `${x},${z}`;
 export class MaterialSystem {
   reserve: Record<Material, number> = { ...START_RESERVE };
   totals: Record<Material, number> = emptyBag(); // reserva + todos los corralones (para el HUD)
+  produced: Record<Material, number> = emptyBag(); // producido este mes (ritmo, para el HUD)
+  consumed: Record<Material, number> = emptyBag(); // consumido este mes: insumos de productoras + ventas/exportación
   idleProducers = 0; // productoras sin energía o sin corralón conectado
   tradeIncome = 0; // renta del mes por ventas (ferreterías) + exportación (terminales)
   exportKeep = DEFAULT_EXPORT_KEEP; // stock mínimo que la terminal conserva antes de exportar
@@ -65,6 +67,8 @@ export class MaterialSystem {
     this.labelRoads(city);
     this.syncCorralones(city);
     this.idleProducers = 0;
+    this.produced = emptyBag();
+    this.consumed = emptyBag();
 
     city.forEach((tile, x, z) => {
       if (city.isSubCell(x, z)) return;
@@ -84,9 +88,10 @@ export class MaterialSystem {
           this.idleProducers++;
           return;
         }
+        this.consumed[def.needsMaterial.material] += def.needsMaterial.amount;
       }
-      // Producir hacia los corralones de su red (lo que no entra, se pierde).
-      if (def.makes) this.depositToComp(comp, def.makes.material, def.makes.amount);
+      // Producir hacia los corralones de su red (lo que no entra por falta de espacio, se pierde).
+      if (def.makes) this.produced[def.makes.material] += this.depositToComp(comp, def.makes.material, def.makes.amount);
     });
 
     this.processTrade(city);
@@ -114,6 +119,7 @@ export class MaterialSystem {
         const sold = Math.min(RETAIL_RATE, this.compStock(comp, m));
         if (sold > 0) {
           this.takeFromComp(comp, m, sold);
+          this.consumed[m] += sold;
           this.tradeIncome += sold * MATERIAL_PRICE[m];
         }
       }
@@ -126,6 +132,7 @@ export class MaterialSystem {
         const surplus = this.compStock(comp, m) - this.exportKeep;
         if (surplus > 0) {
           this.takeFromComp(comp, m, surplus);
+          this.consumed[m] += surplus;
           this.tradeIncome += surplus * MATERIAL_PRICE[m] * EXPORT_MARGIN;
         }
       }
@@ -213,6 +220,14 @@ export class MaterialSystem {
       const avail = this.compStock(comp, def.needsMaterial.material) + this.reserve[def.needsMaterial.material];
       if (avail < def.needsMaterial.amount) {
         return { active: false, reason: `Falta ${MATERIAL_LABEL[def.needsMaterial.material]}: sumá su productora` };
+      }
+    }
+    // Produce pero el almacén está lleno de ese material → lo que fabrica se pierde.
+    if (def.makes) {
+      const keys = this.byComp.get(comp) ?? [];
+      const room = keys.reduce((s, k) => s + (CORRALON_CAP - (this.stock.get(k)?.[def.makes!.material] ?? 0)), 0);
+      if (room <= 0) {
+        return { active: false, reason: `Almacén lleno de ${MATERIAL_LABEL[def.makes.material]}: se desperdicia (sumá un corralón o usá/vendé el material)` };
       }
     }
     return { active: true, reason: '' };
@@ -325,9 +340,10 @@ export class MaterialSystem {
     return sum;
   }
 
-  /** Quita hasta `amt` de un material repartido entre los corralones de la red; devuelve lo que faltó cubrir. */
+  /** Quita hasta `amt` de un material; del corralón MÁS lleno primero (mantiene el balance). Devuelve lo que faltó. */
   private takeFromComp(comp: number, m: Material, amt: number): number {
-    for (const k of this.byComp.get(comp) ?? []) {
+    const keys = [...(this.byComp.get(comp) ?? [])].sort((a, b) => this.stock.get(b)![m] - this.stock.get(a)![m]);
+    for (const k of keys) {
       if (amt <= 0) break;
       const bag = this.stock.get(k)!;
       const take = Math.min(bag[m], amt);
@@ -349,16 +365,20 @@ export class MaterialSystem {
     return true;
   }
 
-  /** Reparte `amt` producido entre los corralones de la red (respeta capacidad). */
-  private depositToComp(comp: number, m: Material, amt: number): void {
-    for (const k of this.byComp.get(comp) ?? []) {
+  /** Reparte `amt` producido entre los corralones (el MÁS vacío primero, para llenarlos parejo). Devuelve cuánto entró. */
+  private depositToComp(comp: number, m: Material, amt: number): number {
+    const keys = [...(this.byComp.get(comp) ?? [])].sort((a, b) => this.stock.get(a)![m] - this.stock.get(b)![m]);
+    let deposited = 0;
+    for (const k of keys) {
       if (amt <= 0) break;
       const bag = this.stock.get(k)!;
       const room = CORRALON_CAP - bag[m];
       const put = Math.min(room, amt);
       bag[m] += put;
       amt -= put;
+      deposited += put;
     }
+    return deposited;
   }
 
   private recomputeTotals(): void {

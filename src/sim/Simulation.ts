@@ -39,6 +39,8 @@ export interface CityStats {
   };
   materials: {
     totals: Record<Material, number>;
+    produced: Record<Material, number>; // producido el último mes (ritmo)
+    consumed: Record<Material, number>; // consumido el último mes (insumos + ventas)
     idleProducers: number;
     corralones: number; // cuántos corralones hay (capacidad de almacenamiento)
   };
@@ -1041,6 +1043,8 @@ export class Simulation {
       },
       materials: {
         totals: this.materials.totals,
+        produced: this.materials.produced,
+        consumed: this.materials.consumed,
         idleProducers: this.materials.idleProducers,
         corralones: this.materials.corralonCount,
       },

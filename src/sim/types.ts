@@ -206,7 +206,7 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.OfficeTower]: { cost: 500, color: 0x3949ab, height: 2.6, upkeep: 6, shopJobs: 100, build: { cemento: 25, ladrillo: 18, madera: 8 } },
   [TileType.TechPark]: { cost: 700, color: 0x00acc1, height: 1.0, upkeep: 7, size: 2, jobs: 150, amenity: { radius: 3, strength: 0.5 }, build: { ladrillo: 28, cemento: 20, madera: 12 } },
 
-  [TileType.SandPit]: { cost: 150, color: 0xd2b48c, height: 0.6, upkeep: 2, jobs: 10, makes: { material: 'arena', amount: 8 } },
+  [TileType.SandPit]: { cost: 150, color: 0xd2b48c, height: 0.6, upkeep: 2, jobs: 10, makes: { material: 'arena', amount: 16 } },
   [TileType.CementPlant]: { cost: 250, color: 0x90a4ae, height: 1.1, upkeep: 3, jobs: 15, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'cemento', amount: 4 } },
   [TileType.BrickKiln]: { cost: 250, color: 0xb24a3a, height: 1.0, upkeep: 3, jobs: 15, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'ladrillo', amount: 5 } },
   [TileType.BuildYard]: { cost: 300, color: 0x8d6e63, height: 0.8, upkeep: 3, size: 2, shopJobs: 20, storesMaterials: true },

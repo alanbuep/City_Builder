@@ -652,6 +652,24 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['sin corralón conectado la productora queda inactiva', st.active === false && s2.getStats().materials.idleProducers > 0]);
 }
 
+// 29) Ritmo de materiales: se reporta producción y consumo por material (para el HUD).
+{
+  const city = new City(12, 12);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 12; x++) city.setType(x, 5, TileType.Road);
+  city.setType(1, 4, TileType.SandPit); // produce arena
+  city.setType(3, 4, TileType.CementPlant); // consume arena → produce cemento
+  city.placeBuilding(6, 6, TileType.BuildYard, 2);
+  city.placeBuilding(9, 6, TileType.PowerPlant, 2);
+  city.drainDirty();
+  sim.tick();
+  const M = sim.getStats().materials;
+  console.log('[ritmo] arena +' + M.produced.arena + ' −' + M.consumed.arena + ' | cemento +' + M.produced.cemento);
+  checks.push(['se reporta la producción de arena (ritmo)', M.produced.arena > 0]);
+  checks.push(['se reporta el consumo de arena (la cementera la usa)', M.consumed.arena > 0]);
+  checks.push(['se reporta la producción de cemento', M.produced.cemento > 0]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);

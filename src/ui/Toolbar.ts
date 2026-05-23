@@ -65,9 +65,9 @@ const CATEGORIES: Category[] = [
   {
     label: '🧱 Materiales',
     tools: [
-      { tool: TileType.SandPit, label: '⏳ Arenera', desc: 'Produce 8 de arena por mes (necesita energía y un corralón conectado por calle).' },
-      { tool: TileType.CementPlant, label: '🪨 Cementera', desc: 'Convierte 6 arena → 4 cemento por mes. Necesita energía + corralón conectado.' },
-      { tool: TileType.BrickKiln, label: '🧱 Ladrillería', desc: 'Convierte 6 arena → 5 ladrillo por mes. Necesita energía + corralón conectado.' },
+      { tool: TileType.SandPit, label: '⏳ Arenera', desc: 'Produce 16 de arena por mes (la arena alimenta el cemento Y el ladrillo). Necesita energía + corralón conectado. Poné suficientes: 1 arenera abastece ~2-3 cementeras/ladrillerías.' },
+      { tool: TileType.CementPlant, label: '🪨 Cementera', desc: 'Convierte 6 arena → 4 cemento por mes. Necesita energía + corralón + ARENA (de una arenera).' },
+      { tool: TileType.BrickKiln, label: '🧱 Ladrillería', desc: 'Convierte 6 arena → 5 ladrillo por mes. Necesita energía + corralón + ARENA (de una arenera).' },
       { tool: TileType.BuildYard, label: '🏬 Corralón', desc: 'Edificio 2×2. Almacena materiales y los distribuye por su red de calles. Hace falta para construir lo avanzado.' },
       { tool: TileType.SawMill, label: '🪵 Aserradero', desc: 'Produce 6 de madera por mes (necesita energía + corralón conectado). La madera sirve para monumentos, aeropuerto y exportar.' },
       { tool: TileType.SteelMill, label: '⚙️ Acería', desc: 'Edificio 2×2. Produce 4 de acero por mes (energía + corralón). El acero alimenta la electrónica y la empresa tecnológica.' },
