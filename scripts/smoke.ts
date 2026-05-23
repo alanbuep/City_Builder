@@ -600,6 +600,26 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['el comercio sigue topando en nivel 3', city.getTile(0, 8).level === 3]);
 }
 
+// 27) Receta de materiales: casi todo cuesta materiales (no solo dinero); la obra
+// los expone (tenés/necesitás) y se puede iniciar con la reserva inicial. La cadena
+// de materiales NO cuesta materiales (para poder arrancar de cero).
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  city.setType(1, 2, TileType.Road);
+  city.placeBuilding(2, 2, TileType.Construction, 2); // cartel 2×2 de un Mercado
+  sim.addSite(2, 2, 2, TileType.Market);
+  city.drainDirty();
+  const info = sim.inspect(2, 2).construction!;
+  console.log('[receta] Mercado needs:', info.needs, '| have.ladrillo:', info.have?.ladrillo, '| canStart:', info.canStart);
+  checks.push(['el mercado define receta de materiales', (TILE_DEF[TileType.Market].build?.ladrillo ?? 0) > 0]);
+  checks.push(['la obra expone los materiales necesarios (needs)', !!info.needs && (info.needs.ladrillo ?? 0) > 0]);
+  checks.push(['la obra expone cuánto hay disponible (have)', !!info.have && info.have.ladrillo > 0]);
+  checks.push(['se puede iniciar con la reserva inicial', info.canStart === true]);
+  checks.push(['el corralón NO cuesta materiales (bootstrap)', TILE_DEF[TileType.BuildYard].build === undefined]);
+  checks.push(['la arenera NO cuesta materiales (bootstrap)', TILE_DEF[TileType.SandPit].build === undefined]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);

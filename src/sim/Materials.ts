@@ -13,7 +13,10 @@
 import { City } from './City';
 import { Material, MATERIALS, MATERIAL_PRICE, MaterialBag, TileType, TILE_DEF } from './types';
 
-const START_RESERVE: Record<Material, number> = { arena: 80, cemento: 60, ladrillo: 60, madera: 0, acero: 0, electronica: 0 };
+// Reserva inicial ("empezar de cero"): alcanza para el kit básico y para levantar
+// la propia cadena de materiales (arenera/cementera/ladrillería/corralón, que NO
+// cuestan materiales). Después, todo se construye con lo que producen los corralones.
+const START_RESERVE: Record<Material, number> = { arena: 80, cemento: 140, ladrillo: 160, madera: 80, acero: 0, electronica: 0 };
 const CORRALON_CAP = 300; // capacidad por material de cada corralón
 const RETAIL_RATE = 4; // cuánto vende una ferretería de cada material por mes
 const EXPORT_MARGIN = 0.7; // exportar paga menos que la venta local
