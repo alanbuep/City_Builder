@@ -133,43 +133,76 @@ const CATEGORIES: Category[] = [
   },
 ];
 
+/** Etiqueta de cada herramienta (para el indicador "Construyendo: …"). */
+const TOOL_LABEL = (() => {
+  const map = new Map<Tool, string>();
+  for (const c of CATEGORIES) for (const t of c.tools) map.set(t.tool, t.label);
+  return map;
+})();
+
 /**
- * Barra de herramientas agrupada por categorías. Una categoría abierta a la vez;
- * cada herramienta tiene un botón de info (ⓘ) que muestra qué es y su costo.
+ * Barra de categorías. Al tocar una categoría se abre un POPUP flotante con sus
+ * edificios; elegir uno (o tocar fuera / Escape) lo cierra. Así la barra queda
+ * compacta y no tapa el resto. Cada edificio tiene un botón de info (ⓘ).
  */
 export class Toolbar {
   current: Tool = 'select';
 
+  private container: HTMLElement;
+  private currentEl: HTMLElement;
+  private popup: HTMLElement;
   private listEl: HTMLElement;
   private tooltip: HTMLElement;
   private catButtons: HTMLButtonElement[] = [];
-  private openCategory = 0;
+  private openCategory = -1; // -1 = popup cerrado
   private unlocked: Set<TileType> | null = null; // null = todo disponible (aún sin datos)
   private unlockedSig = '';
 
   constructor(container: HTMLElement) {
+    this.container = container;
+
     const cats = document.createElement('div');
     cats.className = 'tool-cats';
     CATEGORIES.forEach((cat, i) => {
       const btn = document.createElement('button');
       btn.className = 'cat';
       btn.textContent = cat.label;
-      btn.addEventListener('click', () => this.openCat(i));
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleCat(i);
+      });
       this.catButtons.push(btn);
       cats.appendChild(btn);
     });
     container.appendChild(cats);
 
+    // Indicador de la herramienta activa (el popup se cierra al elegir).
+    this.currentEl = document.createElement('div');
+    this.currentEl.className = 'tool-current';
+    container.appendChild(this.currentEl);
+
+    // Popup flotante con los edificios de la categoría abierta.
+    this.popup = document.createElement('div');
+    this.popup.className = 'tool-popup panel';
+    this.popup.style.display = 'none';
+    this.popup.addEventListener('click', (e) => e.stopPropagation());
     this.listEl = document.createElement('div');
     this.listEl.className = 'tool-list';
-    container.appendChild(this.listEl);
+    this.popup.appendChild(this.listEl);
+    document.body.appendChild(this.popup);
 
     this.tooltip = document.createElement('div');
     this.tooltip.className = 'tool-tip';
     this.tooltip.style.display = 'none';
     document.body.appendChild(this.tooltip);
 
-    this.openCat(0);
+    // Cerrar el popup al tocar fuera o con Escape.
+    document.addEventListener('click', () => this.closePopup());
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.closePopup();
+    });
+
+    this.updateCurrentLabel();
   }
 
   private costOf(tool: Tool): number {
@@ -183,7 +216,8 @@ export class Toolbar {
     this.unlockedSig = sig;
     this.unlocked = set;
     if (this.isLocked(this.current)) this.current = 'select'; // por las dudas
-    this.renderTools();
+    this.updateCurrentLabel();
+    if (this.openCategory >= 0) this.renderTools();
   }
 
   private isLocked(tool: Tool): boolean {
@@ -199,13 +233,42 @@ export class Toolbar {
     return `Se desbloquea con "${tech.name}" — ${METRIC_LABEL[tech.metric]} ≥ ${target}`;
   }
 
-  private openCat(i: number): void {
+  /** Abre/cierra el popup de una categoría (tocar la misma categoría lo cierra). */
+  private toggleCat(i: number): void {
+    if (this.openCategory === i) {
+      this.closePopup();
+      return;
+    }
     this.openCategory = i;
     this.catButtons.forEach((b, j) => b.classList.toggle('active', j === i));
     this.renderTools();
+    this.popup.style.display = '';
+    this.positionPopup();
+  }
+
+  private closePopup(): void {
+    if (this.openCategory < 0) return;
+    this.openCategory = -1;
+    this.catButtons.forEach((b) => b.classList.remove('active'));
+    this.popup.style.display = 'none';
+    this.hideTip();
+  }
+
+  /** Ubica el popup a la derecha de la barra de categorías. */
+  private positionPopup(): void {
+    const r = this.container.getBoundingClientRect();
+    this.popup.style.left = `${r.right + 8}px`;
+    this.popup.style.top = `${r.top}px`;
+  }
+
+  /** Muestra qué herramienta está activa debajo de la barra de categorías. */
+  private updateCurrentLabel(): void {
+    const label = TOOL_LABEL.get(this.current) ?? '🔍 Seleccionar';
+    this.currentEl.innerHTML = `<span style="opacity:.7">Activo:</span> ${label}`;
   }
 
   private renderTools(): void {
+    if (this.openCategory < 0) return;
     this.listEl.innerHTML = '';
     for (const entry of CATEGORIES[this.openCategory].tools) {
       const cost = this.costOf(entry.tool);
@@ -239,7 +302,8 @@ export class Toolbar {
 
   private select(tool: Tool): void {
     this.current = tool;
-    this.renderTools();
+    this.updateCurrentLabel();
+    this.closePopup();
   }
 
   private showTip(text: string, near: HTMLElement): void {
