@@ -463,6 +463,42 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['la biblioteca da cobertura educativa', s2.inspect(2, 0).education > 0]);
 }
 
+// 22) Comercio de materiales: ferretería vende (renta) y terminal exporta el excedente.
+{
+  const city = new City(12, 12);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 12; x++) city.setType(x, 5, TileType.Road);
+  city.setType(1, 4, TileType.SandPit); // produce arena
+  city.placeBuilding(3, 6, TileType.BuildYard, 2); // corralón
+  city.placeBuilding(6, 6, TileType.PowerPlant, 2); // energía
+  city.setType(9, 4, TileType.Hardware); // ferretería (vende a la ciudad)
+  city.drainDirty();
+  let tradeSeen = 0;
+  for (let i = 0; i < 6; i++) {
+    sim.tick();
+    tradeSeen = Math.max(tradeSeen, sim.materials.tradeIncome);
+  }
+  console.log('[comercio] renta por venta:', tradeSeen);
+  checks.push(['la ferretería genera renta vendiendo materiales', tradeSeen > 0]);
+
+  const c2 = new City(12, 12);
+  const s2 = new Simulation(c2);
+  for (let x = 0; x < 12; x++) c2.setType(x, 5, TileType.Road);
+  c2.setType(1, 4, TileType.SandPit);
+  c2.placeBuilding(3, 6, TileType.BuildYard, 2);
+  c2.placeBuilding(6, 6, TileType.PowerPlant, 2);
+  c2.placeBuilding(9, 6, TileType.ExportTerminal, 2);
+  c2.drainDirty();
+  s2.setExportKeep(0); // exportar todo el excedente
+  let exp = 0;
+  for (let i = 0; i < 4; i++) {
+    s2.tick();
+    exp = Math.max(exp, s2.materials.tradeIncome);
+  }
+  console.log('[exportación] renta por exportación:', exp.toFixed(1));
+  checks.push(['la terminal exporta el excedente y da renta', exp > 0]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);

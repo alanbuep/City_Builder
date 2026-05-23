@@ -11,14 +11,18 @@
 //    salvo los edificios que exigen corralón —`needsYard`— que solo usan corralón).
 // ---------------------------------------------------------------------------
 import { City } from './City';
-import { Material, MATERIALS, MaterialBag, TileType, TILE_DEF } from './types';
+import { Material, MATERIALS, MATERIAL_PRICE, MaterialBag, TileType, TILE_DEF } from './types';
 
 const START_RESERVE: Record<Material, number> = { arena: 80, cemento: 60, ladrillo: 60 };
 const CORRALON_CAP = 300; // capacidad por material de cada corralón
+const RETAIL_RATE = 4; // cuánto vende una ferretería de cada material por mes
+const EXPORT_MARGIN = 0.7; // exportar paga menos que la venta local
+const DEFAULT_EXPORT_KEEP = 100; // stock mínimo a conservar antes de exportar
 
 export interface MaterialsSave {
   reserve: Record<Material, number>;
   corralones: Array<{ key: string; bag: Record<Material, number> }>;
+  exportKeep?: number;
 }
 
 function emptyBag(): Record<Material, number> {
@@ -35,6 +39,8 @@ export class MaterialSystem {
   reserve: Record<Material, number> = { ...START_RESERVE };
   totals: Record<Material, number> = emptyBag(); // reserva + todos los corralones (para el HUD)
   idleProducers = 0; // productoras sin energía o sin corralón conectado
+  tradeIncome = 0; // renta del mes por ventas (ferreterías) + exportación (terminales)
+  exportKeep = DEFAULT_EXPORT_KEEP; // stock mínimo que la terminal conserva antes de exportar
 
   private width: number;
   private height: number;
@@ -76,7 +82,47 @@ export class MaterialSystem {
       if (def.makes) this.depositToComp(comp, def.makes.material, def.makes.amount);
     });
 
+    this.processTrade(city);
     this.recomputeTotals();
+  }
+
+  /** Define cuánto stock conservar antes de exportar (no baja de 0). */
+  setExportKeep(value: number): void {
+    this.exportKeep = Math.max(0, Math.round(value));
+  }
+
+  /**
+   * Ventas y exportación del mes (consumen del corralón de la red, dan renta):
+   *  1) Ferreterías: venden a la población (precio local).
+   *  2) Terminales: exportan el excedente sobre `exportKeep` (precio de exportación).
+   * Se procesa retail primero (la ciudad tiene prioridad), luego el excedente se exporta.
+   */
+  private processTrade(city: City): void {
+    this.tradeIncome = 0;
+    city.forEach((tile, x, z) => {
+      if (city.isSubCell(x, z) || !TILE_DEF[tile.type].sellsMaterials) return;
+      const comp = this.componentOfFootprint(city, x, z, tile.size);
+      if (comp < 0) return;
+      for (const m of MATERIALS) {
+        const sold = Math.min(RETAIL_RATE, this.compStock(comp, m));
+        if (sold > 0) {
+          this.takeFromComp(comp, m, sold);
+          this.tradeIncome += sold * MATERIAL_PRICE[m];
+        }
+      }
+    });
+    city.forEach((tile, x, z) => {
+      if (city.isSubCell(x, z) || !TILE_DEF[tile.type].exportsMaterials) return;
+      const comp = this.componentOfFootprint(city, x, z, tile.size);
+      if (comp < 0) return;
+      for (const m of MATERIALS) {
+        const surplus = this.compStock(comp, m) - this.exportKeep;
+        if (surplus > 0) {
+          this.takeFromComp(comp, m, surplus);
+          this.tradeIncome += surplus * MATERIAL_PRICE[m] * EXPORT_MARGIN;
+        }
+      }
+    });
   }
 
   // --- Construcción ---
@@ -133,6 +179,7 @@ export class MaterialSystem {
     return {
       reserve: { ...this.reserve },
       corralones: [...this.stock.entries()].map(([key, bag]) => ({ key, bag: { ...bag } })),
+      exportKeep: this.exportKeep,
     };
   }
 
@@ -140,12 +187,14 @@ export class MaterialSystem {
     this.reserve = data?.reserve ? { ...emptyBag(), ...data.reserve } : { ...START_RESERVE };
     this.stock.clear();
     for (const c of data?.corralones ?? []) this.stock.set(c.key, { ...emptyBag(), ...c.bag });
+    this.exportKeep = data?.exportKeep ?? DEFAULT_EXPORT_KEEP;
     this.recomputeTotals();
   }
 
   reset(): void {
     this.reserve = { ...START_RESERVE };
     this.stock.clear();
+    this.exportKeep = DEFAULT_EXPORT_KEEP;
     this.recomputeTotals();
   }
 

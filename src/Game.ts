@@ -86,6 +86,7 @@ export class Game {
       onUpgrade: () => this.upgradeSelected(),
       onDemolish: () => this.demolishSelected(),
       onStart: () => this.startSelected(),
+      onExportKeep: (delta) => this.sim.setExportKeep(this.sim.exportKeep + delta),
       onClose: () => this.deselect(),
     });
     this.notifications = new Notifications();

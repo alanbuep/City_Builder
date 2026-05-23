@@ -53,6 +53,9 @@ export enum TileType {
   Library = 'library',
   Monument = 'monument',
   Airport = 'airport',
+  // Comercio de materiales / exportación:
+  Hardware = 'hardware', // Ferretería (vende materiales del corralón a la ciudad)
+  ExportTerminal = 'export', // Terminal de exportación (vende el excedente al exterior)
   // Obra en construcción: ocupa el terreno hasta que se completa y aparece el edificio real.
   Construction = 'construction',
 }
@@ -71,6 +74,12 @@ export const MATERIAL_ICON: Record<Material, string> = {
   arena: '⏳',
   cemento: '🪨',
   ladrillo: '🧱',
+};
+/** Precio de mercado de cada material (venta local / exportación). */
+export const MATERIAL_PRICE: Record<Material, number> = {
+  arena: 4,
+  cemento: 9,
+  ladrillo: 8,
 };
 
 /** Nivel máximo de un edificio de zona (R/C/I). */
@@ -131,6 +140,8 @@ export interface TileDef {
   makes?: { material: Material; amount: number }; // produce este material por mes (necesita energía + corralón conectado)
   needsMaterial?: { material: Material; amount: number }; // insumo que consume por mes (lo toma del corralón conectado)
   storesMaterials?: boolean; // corralón: almacena materiales y es el centro de distribución
+  sellsMaterials?: boolean; // ferretería: vende materiales del corralón conectado a la población (renta)
+  exportsMaterials?: boolean; // terminal: exporta el excedente del corralón conectado (renta)
   build?: MaterialBag; // materiales que cuesta CONSTRUIRLO (una vez, al colocarlo)
   needsYard?: boolean; // requiere un corralón conectado por calle (y saca de él los materiales)
 }
@@ -183,6 +194,9 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Library]: { cost: 300, color: 0x795548, height: 1.0, upkeep: 4, education: { radius: 6, strength: 1.2, capacity: 500 } },
   [TileType.Monument]: { cost: 800, color: 0xd4af37, height: 2.2, upkeep: 6, size: 2, amenity: { radius: 6, strength: 1.4 }, build: { cemento: 40, ladrillo: 30 } },
   [TileType.Airport]: { cost: 1200, color: 0x607d8a, height: 1.0, upkeep: 12, size: 3, shopJobs: 80, amenity: { radius: 6, strength: 1.0 }, income: 60, build: { cemento: 50, ladrillo: 40 } },
+
+  [TileType.Hardware]: { cost: 250, color: 0xff8f00, height: 0.9, upkeep: 3, shopJobs: 20, sellsMaterials: true },
+  [TileType.ExportTerminal]: { cost: 500, color: 0x455a64, height: 0.9, upkeep: 5, size: 2, shopJobs: 15, exportsMaterials: true },
 
   [TileType.Construction]: { cost: 0, color: 0xffb74d, height: 0.3 }, // cartel/andamio de obra
 };

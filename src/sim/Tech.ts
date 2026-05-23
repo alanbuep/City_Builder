@@ -70,7 +70,7 @@ export const TECHS: TechDef[] = [
     desc: 'Arenera, cementera y ladrillería + corralón: producí y almacená tus propios materiales.',
     metric: 'population',
     target: 120,
-    unlocks: [TileType.SandPit, TileType.CementPlant, TileType.BrickKiln, TileType.BuildYard],
+    unlocks: [TileType.SandPit, TileType.CementPlant, TileType.BrickKiln, TileType.BuildYard, TileType.Hardware],
   },
   {
     id: 'culture',
@@ -97,7 +97,7 @@ export const TECHS: TechDef[] = [
     desc: 'Un tesoro sólido habilita el gobierno y grandes obras como el estadio.',
     metric: 'money',
     target: 20000,
-    unlocks: [TileType.Government, TileType.Stadium, TileType.Monument],
+    unlocks: [TileType.Government, TileType.Stadium, TileType.Monument, TileType.ExportTerminal],
   },
   {
     id: 'bigindustry',

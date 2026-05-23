@@ -56,6 +56,7 @@ export interface TileInfo {
   cityHasWater: boolean;
   cityHasGas: boolean;
   storedMaterials?: Record<Material, number>; // (corralón) materiales que tiene guardados
+  exportKeep?: number; // (terminal) stock mínimo a conservar antes de exportar
   construction?: ConstructionInfo; // (obra) datos de la construcción en curso
   maxLevel: number; // nivel máximo alcanzable con la cobertura actual
   canUpgrade: boolean;
@@ -420,8 +421,18 @@ export class Simulation {
       serviceServed: serviceInf ? this.populationInRadius(x, z, serviceInf.radius) : 0,
       serviceCapacity: serviceInf?.capacity ?? 0,
       storedMaterials: tile.type === TileType.BuildYard ? this.materials.stockAt(x, z) : undefined,
+      exportKeep: tile.type === TileType.ExportTerminal ? this.materials.exportKeep : undefined,
       construction: this.constructionInfo(x, z),
     };
+  }
+
+  /** Ajusta el stock mínimo que la terminal conserva antes de exportar. */
+  setExportKeep(value: number): void {
+    this.materials.setExportKeep(value);
+  }
+
+  get exportKeep(): number {
+    return this.materials.exportKeep;
   }
 
   /** Datos de la obra en (x,z), o undefined si no hay ninguna. */
@@ -966,7 +977,8 @@ export class Simulation {
       this.employed * TAX_WORKER +
       this.commercialJobs * TAX_COMMERCE +
       this.industrialJobs * TAX_INDUSTRY +
-      this.bonusIncome;
+      this.bonusIncome +
+      this.materials.tradeIncome; // ventas + exportación de materiales
     // Gastos: mantenimiento + costo de atender a cada habitante.
     const expenses = this.totalUpkeep + this.population * SERVICE_COST_PER_CITIZEN;
     this.money += income - expenses;

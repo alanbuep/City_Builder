@@ -57,6 +57,8 @@ const NAME: Record<TileType, string> = {
   [TileType.Library]: 'Biblioteca 📚',
   [TileType.Monument]: 'Monumento 🗽',
   [TileType.Airport]: 'Aeropuerto ✈️',
+  [TileType.Hardware]: 'Ferretería 🔧',
+  [TileType.ExportTerminal]: 'Terminal de exportación 🚢',
   [TileType.Construction]: 'Obra 🚧',
 };
 
@@ -64,6 +66,7 @@ export interface InspectorCallbacks {
   onUpgrade: () => void;
   onDemolish: () => void;
   onStart: () => void; // dar el OK a una obra
+  onExportKeep: (delta: number) => void; // ajustar el stock mínimo de exportación
   onClose: () => void;
 }
 
@@ -78,6 +81,8 @@ export class Inspector {
   private startBtn: HTMLButtonElement;
   private upgradeBtn: HTMLButtonElement;
   private demolishBtn: HTMLButtonElement;
+  private exMinusBtn: HTMLButtonElement;
+  private exPlusBtn: HTMLButtonElement;
   private roadStretch?: { cells: number; cost: number }; // tramo de carretera elegido a mano
 
   constructor(container: HTMLElement, callbacks: InspectorCallbacks) {
@@ -91,6 +96,8 @@ export class Inspector {
       </div>
       <div class="insp-body"></div>
       <div class="insp-actions">
+        <button class="ctrl insp-exminus" title="Conservar menos (exportar más)">➖</button>
+        <button class="ctrl insp-explus" title="Conservar más (exportar menos)">➕</button>
         <button class="ctrl insp-start"></button>
         <button class="ctrl insp-upgrade"></button>
         <button class="ctrl insp-demolish">🧨 Demoler</button>
@@ -103,11 +110,15 @@ export class Inspector {
     this.startBtn = this.root.querySelector('.insp-start')!;
     this.upgradeBtn = this.root.querySelector('.insp-upgrade')!;
     this.demolishBtn = this.root.querySelector('.insp-demolish')!;
+    this.exMinusBtn = this.root.querySelector('.insp-exminus')!;
+    this.exPlusBtn = this.root.querySelector('.insp-explus')!;
 
     this.root.querySelector('.insp-close')!.addEventListener('click', () => callbacks.onClose());
     this.startBtn.addEventListener('click', () => callbacks.onStart());
     this.upgradeBtn.addEventListener('click', () => callbacks.onUpgrade());
     this.demolishBtn.addEventListener('click', () => callbacks.onDemolish());
+    this.exMinusBtn.addEventListener('click', () => callbacks.onExportKeep(-20));
+    this.exPlusBtn.addEventListener('click', () => callbacks.onExportKeep(20));
   }
 
   show(): void {
@@ -125,6 +136,8 @@ export class Inspector {
     }
     this.roadStretch = roadStretch;
     this.startBtn.style.display = 'none'; // solo aparece en las obras
+    this.exMinusBtn.style.display = 'none'; // solo en la terminal de exportación
+    this.exPlusBtn.style.display = 'none';
 
     this.titleEl.textContent = NAME[info.type];
     const def = TILE_DEF[info.type];
@@ -154,6 +167,16 @@ export class Inspector {
       if (def.needsMaterial) lines.push(`Consume: ${def.needsMaterial.amount} ${MATERIAL_ICON[def.needsMaterial.material]} /mes`);
       if (def.makes) lines.push(`Produce: ${def.makes.amount} ${MATERIAL_ICON[def.makes.material]} /mes`);
       lines.push('<i style="opacity:.8">Necesita energía y un corralón conectado por calle.</i>');
+    } else if (def.sellsMaterials) {
+      lines.push('Ferretería: vende materiales del corralón a la ciudad → renta. 🔧');
+      lines.push(`Empleos comerciales: ${def.shopJobs ?? 0}`);
+      lines.push('<i style="opacity:.8">Vende arena/cemento/ladrillo. Necesita un corralón conectado por calle.</i>');
+    } else if (def.exportsMaterials) {
+      lines.push('Terminal de exportación: vende el excedente al exterior → renta. 🚢');
+      lines.push(`Conserva <b>${info.exportKeep ?? 0}</b> de cada material; exporta el resto cada mes.`);
+      lines.push('<i style="opacity:.8">Ajustá con ➖/➕. Necesita un corralón conectado por calle.</i>');
+      this.exMinusBtn.style.display = '';
+      this.exPlusBtn.style.display = '';
     } else if (def.service || def.education || def.health) {
       const label = def.education ? 'cobertura educativa 🎓' : def.health ? 'cobertura de salud 🏥' : 'cobertura de servicios 🛡️';
       lines.push(`Brinda ${label}.`);
@@ -239,6 +262,8 @@ export class Inspector {
     this.bodyEl.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
 
     this.upgradeBtn.style.display = 'none';
+    this.exMinusBtn.style.display = 'none';
+    this.exPlusBtn.style.display = 'none';
     this.demolishBtn.style.display = '';
     if (c.status === 'planned') {
       this.startBtn.style.display = '';
