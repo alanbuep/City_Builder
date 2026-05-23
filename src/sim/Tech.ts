@@ -70,7 +70,7 @@ export const TECHS: TechDef[] = [
     desc: 'Arenera, cementera y ladrillería + corralón: producí y almacená tus propios materiales.',
     metric: 'population',
     target: 120,
-    unlocks: [TileType.SandPit, TileType.CementPlant, TileType.BrickKiln, TileType.BuildYard, TileType.Hardware],
+    unlocks: [TileType.SandPit, TileType.CementPlant, TileType.BrickKiln, TileType.BuildYard, TileType.Hardware, TileType.SawMill],
   },
   {
     id: 'culture',
@@ -103,10 +103,10 @@ export const TECHS: TechDef[] = [
     id: 'bigindustry',
     icon: '🏗️',
     name: 'Gran industria',
-    desc: 'Fábricas grandes, parques tecnológicos y la empresa tecnológica (requiere materiales).',
+    desc: 'Acería, electrónica, fábricas grandes y la empresa tecnológica (acero + electrónica).',
     metric: 'industrialJobs',
     target: 220,
-    unlocks: [TileType.FactoryLarge, TileType.TechPark, TileType.TechCompany],
+    unlocks: [TileType.FactoryLarge, TileType.TechPark, TileType.SteelMill, TileType.ElectronicsFactory, TileType.TechCompany],
   },
   {
     id: 'metropolis',

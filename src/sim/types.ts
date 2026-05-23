@@ -68,30 +68,43 @@ export enum TileType {
   Bank = 'bank',
   GasStation = 'gasstation',
   Dealership = 'dealership',
+  // Cadena profunda de producción (alimenta la empresa tecnológica):
+  SawMill = 'sawmill', // Aserradero (madera)
+  SteelMill = 'steelmill', // Acería (acero)
+  ElectronicsFactory = 'electronics', // Fábrica de electrónica (acero → electrónica)
   // Obra en construcción: ocupa el terreno hasta que se completa y aparece el edificio real.
   Construction = 'construction',
 }
 
 /** Materiales de construcción (cadena de producción). */
-export type Material = 'arena' | 'cemento' | 'ladrillo';
-export const MATERIALS: Material[] = ['arena', 'cemento', 'ladrillo'];
+export type Material = 'arena' | 'cemento' | 'ladrillo' | 'madera' | 'acero' | 'electronica';
+export const MATERIALS: Material[] = ['arena', 'cemento', 'ladrillo', 'madera', 'acero', 'electronica'];
 /** Una cantidad de materiales (los ausentes valen 0). */
 export type MaterialBag = Partial<Record<Material, number>>;
 export const MATERIAL_LABEL: Record<Material, string> = {
   arena: 'Arena',
   cemento: 'Cemento',
   ladrillo: 'Ladrillo',
+  madera: 'Madera',
+  acero: 'Acero',
+  electronica: 'Electrónica',
 };
 export const MATERIAL_ICON: Record<Material, string> = {
   arena: '⏳',
   cemento: '🪨',
   ladrillo: '🧱',
+  madera: '🪵',
+  acero: '⚙️',
+  electronica: '🔌',
 };
 /** Precio de mercado de cada material (venta local / exportación). */
 export const MATERIAL_PRICE: Record<Material, number> = {
   arena: 4,
   cemento: 9,
   ladrillo: 8,
+  madera: 6,
+  acero: 14,
+  electronica: 25,
 };
 
 /** Nivel máximo de un edificio de zona (R/C/I). */
@@ -192,7 +205,7 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.CementPlant]: { cost: 250, color: 0x90a4ae, height: 1.1, upkeep: 3, jobs: 15, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'cemento', amount: 4 } },
   [TileType.BrickKiln]: { cost: 250, color: 0xb24a3a, height: 1.0, upkeep: 3, jobs: 15, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'ladrillo', amount: 5 } },
   [TileType.BuildYard]: { cost: 300, color: 0x8d6e63, height: 0.8, upkeep: 3, size: 2, shopJobs: 20, storesMaterials: true },
-  [TileType.TechCompany]: { cost: 800, color: 0x00bcd4, height: 1.5, upkeep: 8, size: 2, jobs: 200, amenity: { radius: 3, strength: 0.4 }, build: { ladrillo: 40, cemento: 30 }, needsYard: true },
+  [TileType.TechCompany]: { cost: 800, color: 0x00bcd4, height: 1.5, upkeep: 8, size: 2, jobs: 200, amenity: { radius: 3, strength: 0.4 }, build: { ladrillo: 30, acero: 30, electronica: 15 }, needsYard: true },
 
   [TileType.School]: { cost: 200, color: 0xffb300, height: 0.9, upkeep: 4, education: { radius: 5, strength: 1.0, capacity: 300 } },
   [TileType.University]: { cost: 500, color: 0x6d4c41, height: 1.3, upkeep: 8, size: 2, education: { radius: 7, strength: 1.6, capacity: 800 } },
@@ -205,8 +218,8 @@ export const TILE_DEF: Record<TileType, TileDef> = {
 
   [TileType.Church]: { cost: 250, color: 0xefebe9, height: 1.3, upkeep: 3, amenity: { radius: 4, strength: 0.7 } },
   [TileType.Library]: { cost: 300, color: 0x795548, height: 1.0, upkeep: 4, education: { radius: 6, strength: 1.2, capacity: 500 } },
-  [TileType.Monument]: { cost: 800, color: 0xd4af37, height: 2.2, upkeep: 6, size: 2, amenity: { radius: 6, strength: 1.4 }, build: { cemento: 40, ladrillo: 30 } },
-  [TileType.Airport]: { cost: 1200, color: 0x607d8a, height: 1.0, upkeep: 12, size: 3, shopJobs: 80, amenity: { radius: 6, strength: 1.0 }, income: 60, build: { cemento: 50, ladrillo: 40 } },
+  [TileType.Monument]: { cost: 800, color: 0xd4af37, height: 2.2, upkeep: 6, size: 2, amenity: { radius: 6, strength: 1.4 }, build: { cemento: 40, ladrillo: 30, madera: 20 } },
+  [TileType.Airport]: { cost: 1200, color: 0x546e7a, height: 1.0, upkeep: 12, size: 3, shopJobs: 80, amenity: { radius: 6, strength: 1.0 }, income: 60, build: { cemento: 50, ladrillo: 40, madera: 30 } },
 
   [TileType.Hardware]: { cost: 250, color: 0xff8f00, height: 0.9, upkeep: 3, shopJobs: 20, sellsMaterials: true },
   [TileType.ExportTerminal]: { cost: 500, color: 0x455a64, height: 0.9, upkeep: 5, size: 2, shopJobs: 15, exportsMaterials: true },
@@ -215,6 +228,10 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Diner]: { cost: 180, color: 0xf4511e, height: 0.8, upkeep: 3, shopJobs: 15, food: { radius: 5, strength: 0.9, capacity: 400 }, amenity: { radius: 2, strength: 0.3 } },
   [TileType.Restaurant]: { cost: 300, color: 0xc2185b, height: 1.0, upkeep: 4, shopJobs: 25, food: { radius: 5, strength: 1.0, capacity: 400 }, amenity: { radius: 3, strength: 0.6 } },
   [TileType.Market]: { cost: 400, color: 0x43a047, height: 1.0, upkeep: 5, size: 2, shopJobs: 40, food: { radius: 7, strength: 1.2, capacity: 800 }, amenity: { radius: 2, strength: 0.2 } },
+
+  [TileType.SawMill]: { cost: 200, color: 0x8d6e63, height: 0.9, upkeep: 3, jobs: 12, makes: { material: 'madera', amount: 6 } },
+  [TileType.SteelMill]: { cost: 350, color: 0x607d8a, height: 1.3, upkeep: 5, size: 2, jobs: 30, makes: { material: 'acero', amount: 4 } },
+  [TileType.ElectronicsFactory]: { cost: 400, color: 0x5e35b1, height: 1.2, upkeep: 5, size: 2, jobs: 40, needsMaterial: { material: 'acero', amount: 3 }, makes: { material: 'electronica', amount: 2 } },
 
   [TileType.Kiosk]: { cost: 80, color: 0x26a69a, height: 0.5, upkeep: 1, shopJobs: 6 },
   [TileType.Boutique]: { cost: 200, color: 0xba68c8, height: 0.8, upkeep: 2, shopJobs: 18, amenity: { radius: 2, strength: 0.3 } },

@@ -541,6 +541,27 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['la farmacia da algo de cobertura de salud', s2.inspect(2, 0).health > 0]);
 }
 
+// 25) Cadena profunda: acería → acero, electrónica usa acero, empresa tecnológica los exige.
+{
+  const city = new City(14, 14);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 14; x++) city.setType(x, 6, TileType.Road);
+  city.placeBuilding(0, 7, TileType.SteelMill, 2); // acero
+  city.placeBuilding(3, 7, TileType.ElectronicsFactory, 2); // acero → electrónica
+  city.placeBuilding(6, 7, TileType.BuildYard, 2); // corralón
+  city.placeBuilding(9, 7, TileType.PowerPlant, 2); // energía
+  city.drainDirty();
+  for (let i = 0; i < 12; i++) sim.tick();
+  const t = sim.getStats().materials.totals;
+  console.log('[cadena profunda] acero/electrónica:', t.acero, '/', t.electronica);
+  checks.push(['la acería produce acero', t.acero > 0]);
+  checks.push(['la fábrica de electrónica produce electrónica', t.electronica > 0]);
+  checks.push([
+    'la empresa tecnológica ahora exige acero + electrónica',
+    (TILE_DEF[TileType.TechCompany].build?.acero ?? 0) > 0 && (TILE_DEF[TileType.TechCompany].build?.electronica ?? 0) > 0,
+  ]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);

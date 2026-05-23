@@ -69,6 +69,9 @@ const NAME: Record<TileType, string> = {
   [TileType.Bank]: 'Banco 💰',
   [TileType.GasStation]: 'Estación de servicio ⛽',
   [TileType.Dealership]: 'Concesionaria 🚗',
+  [TileType.SawMill]: 'Aserradero 🪵',
+  [TileType.SteelMill]: 'Acería ⚙️',
+  [TileType.ElectronicsFactory]: 'Fábrica de electrónica 🔌',
   [TileType.Construction]: 'Obra 🚧',
 };
 

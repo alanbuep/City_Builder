@@ -136,11 +136,8 @@ export class Hud {
     `;
     container.appendChild(panel);
     this.addInfo(panel.querySelector('.panel-head')!, MAT_INFO);
-    this.matEls = {
-      arena: panel.querySelector('#mat-arena')!,
-      cemento: panel.querySelector('#mat-cemento')!,
-      ladrillo: panel.querySelector('#mat-ladrillo')!,
-    };
+    this.matEls = {} as Record<Material, HTMLElement>;
+    for (const m of MATERIALS) this.matEls[m] = panel.querySelector(`#mat-${m}`)!;
   }
 
   private buildTech(container: HTMLElement): void {

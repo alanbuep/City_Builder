@@ -13,7 +13,7 @@
 import { City } from './City';
 import { Material, MATERIALS, MATERIAL_PRICE, MaterialBag, TileType, TILE_DEF } from './types';
 
-const START_RESERVE: Record<Material, number> = { arena: 80, cemento: 60, ladrillo: 60 };
+const START_RESERVE: Record<Material, number> = { arena: 80, cemento: 60, ladrillo: 60, madera: 0, acero: 0, electronica: 0 };
 const CORRALON_CAP = 300; // capacidad por material de cada corralón
 const RETAIL_RATE = 4; // cuánto vende una ferretería de cada material por mes
 const EXPORT_MARGIN = 0.7; // exportar paga menos que la venta local
@@ -26,7 +26,9 @@ export interface MaterialsSave {
 }
 
 function emptyBag(): Record<Material, number> {
-  return { arena: 0, cemento: 0, ladrillo: 0 };
+  const bag = {} as Record<Material, number>;
+  for (const m of MATERIALS) bag[m] = 0;
+  return bag;
 }
 
 const keyOf = (x: number, z: number) => `${x},${z}`;
