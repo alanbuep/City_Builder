@@ -306,9 +306,10 @@ const checks: Array<[string, boolean]> = [];
 
   for (let i = 0; i < 10; i++) sim.tick();
   const totals = sim.getStats().materials.totals;
-  console.log('[materiales] totales tras 10 meses:', totals, '| inactivas:', sim.getStats().materials.idleProducers);
+  const yard = sim.materials.stockAt(6, 6); // stock que se acumuló EN el corralón
+  console.log('[materiales] totales tras 10 meses:', totals, '| corralón:', yard, '| inactivas:', sim.getStats().materials.idleProducers);
   checks.push(['la arenera produce arena (más que la reserva)', totals.arena > 80]);
-  checks.push(['la cementera convierte arena en cemento', totals.cemento > 60]);
+  checks.push(['la cementera acumula cemento en el corralón', yard.cemento > 0]);
   checks.push(['con corralón + energía no hay productoras inactivas', sim.getStats().materials.idleProducers === 0]);
 }
 
@@ -618,6 +619,37 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['se puede iniciar con la reserva inicial', info.canStart === true]);
   checks.push(['el corralón NO cuesta materiales (bootstrap)', TILE_DEF[TileType.BuildYard].build === undefined]);
   checks.push(['la arenera NO cuesta materiales (bootstrap)', TILE_DEF[TileType.SandPit].build === undefined]);
+}
+
+// 28) Productoras: el insumo sale del corralón O de la reserva. Una ladrillería +
+// corralón + energía (SIN arenera) produce ladrillo gastando la reserva de arena.
+// Sin un corralón conectado, la productora queda inactiva (y el inspector lo dice).
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 10; x++) city.setType(x, 3, TileType.Road);
+  city.setType(1, 2, TileType.BrickKiln); // ladrillo (consume arena)
+  city.placeBuilding(4, 4, TileType.BuildYard, 2); // corralón conectado
+  city.placeBuilding(7, 4, TileType.PowerPlant, 2); // energía
+  city.drainDirty();
+  const ladrillo0 = sim.getStats().materials.totals.ladrillo;
+  const arena0 = sim.getStats().materials.totals.arena;
+  for (let i = 0; i < 5; i++) sim.tick();
+  const t = sim.getStats().materials.totals;
+  console.log('[ladrillería] ladrillo', ladrillo0, '→', t.ladrillo, '| arena', arena0, '→', t.arena);
+  checks.push(['la ladrillería produce ladrillo usando la reserva de arena', t.ladrillo > ladrillo0]);
+  checks.push(['gasta arena al producir (sale de la reserva)', t.arena < arena0]);
+
+  const c2 = new City(10, 10);
+  const s2 = new Simulation(c2);
+  c2.setType(0, 1, TileType.Road);
+  c2.setType(0, 0, TileType.BrickKiln);
+  c2.placeBuilding(4, 4, TileType.PowerPlant, 2); // hay energía, pero NO corralón
+  c2.drainDirty();
+  const st = s2.materials.producerStatusAt(c2, 0, 0, true);
+  s2.tick();
+  console.log('[ladrillería sin corralón] activa:', st.active, '| reason:', st.reason, '| inactivas:', s2.getStats().materials.idleProducers);
+  checks.push(['sin corralón conectado la productora queda inactiva', st.active === false && s2.getStats().materials.idleProducers > 0]);
 }
 
 let allOk = true;

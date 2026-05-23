@@ -97,6 +97,9 @@ export const MATERIAL_ICON: Record<Material, string> = {
   acero: '⚙️',
   electronica: '🔌',
 };
+/** Capacidad de almacenamiento por material de cada corralón. */
+export const CORRALON_CAP = 300;
+
 /** Precio de mercado de cada material (venta local / exportación). */
 export const MATERIAL_PRICE: Record<Material, number> = {
   arena: 4,

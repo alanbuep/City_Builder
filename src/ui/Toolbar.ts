@@ -74,7 +74,7 @@ const CATEGORIES: Category[] = [
       { tool: TileType.ElectronicsFactory, label: '🔌 Fábrica de electrónica', desc: 'Edificio 2×2. Convierte 3 acero → 2 electrónica por mes. La electrónica es clave para la empresa tecnológica.' },
       { tool: TileType.Hardware, label: '🔧 Ferretería', desc: 'Vende materiales del corralón conectado a la población → renta + empleos. Compite con la construcción por el stock.' },
       { tool: TileType.ExportTerminal, label: '🚢 Terminal de exportación', desc: 'Edificio 2×2. Exporta el excedente de materiales (sobre un stock mínimo que configurás) → renta.' },
-      { tool: TileType.TechCompany, label: '🔬 Empresa tecnológica', desc: 'Edificio 2×2. Requiere un corralón conectado con 40 ladrillo + 30 cemento. 200 empleos de alto valor.' },
+      { tool: TileType.TechCompany, label: '🔬 Empresa tecnológica', desc: 'Edificio 2×2. Requiere un corralón conectado con 30 ladrillo + 30 acero + 15 electrónica. 200 empleos de alto valor.' },
     ],
   },
   {

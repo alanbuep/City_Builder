@@ -1,5 +1,5 @@
 import { CityStats, GameMode, TechStatus } from '../sim/Simulation';
-import { Material, MATERIALS, MATERIAL_ICON, MATERIAL_LABEL } from '../sim/types';
+import { Material, MATERIALS, MATERIAL_ICON, MATERIAL_LABEL, CORRALON_CAP } from '../sim/types';
 
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const START_YEAR = 2000;
@@ -17,9 +17,10 @@ const TECH_INFO =
   'Tecnología: tu ciudad desbloquea edificios nuevos al alcanzar hitos de población, ' +
   'empleo industrial o tesoro. La barra muestra cuánto te falta para el próximo desbloqueo.';
 const MAT_INFO =
-  'Materiales de construcción de tu ciudad (reserva inicial + lo guardado en los corralones). ' +
-  'Construí arenera/cementera/ladrillería y conectalas por CALLE a un corralón para producir más. ' +
-  'Lo avanzado (empresa tecnológica, fábrica grande, estadio…) gasta materiales al construirse.';
+  'Materiales de tu ciudad: total = reserva inicial + lo guardado en los corralones. ' +
+  'Cada corralón almacena hasta ' + CORRALON_CAP + ' de cada material. Conectá productoras por CALLE a un corralón para fabricar más. ' +
+  'Ojo: muchas productoras consumen un insumo (la cementera y la ladrillería gastan ARENA, la electrónica gasta ACERO), ' +
+  'que sale del corralón o de la reserva. Casi todo lo que construís gasta materiales.';
 
 export interface HudCallbacks {
   onTogglePause: () => void;
@@ -44,6 +45,7 @@ export class Hud {
   private waterEl!: HTMLElement;
   private gasEl!: HTMLElement;
   private matEls!: Record<Material, HTMLElement>;
+  private matCapEl!: HTMLElement;
   private techCountEl!: HTMLElement;
   private techNextEl!: HTMLElement;
   private techBarWrap!: HTMLElement;
@@ -133,11 +135,15 @@ export class Hud {
         (m) =>
           `<div class="util-row"><span>${MATERIAL_ICON[m]} ${MATERIAL_LABEL[m]}</span><span class="util-val" id="mat-${m}">—</span></div>`,
       ).join('')}
+      <div class="util-row" style="opacity:0.7; font-size:11px; border-top:1px solid rgba(255,255,255,0.12); margin-top:3px; padding-top:4px;">
+        <span>🏬 Almacén</span><span class="util-val" id="mat-cap">—</span>
+      </div>
     `;
     container.appendChild(panel);
     this.addInfo(panel.querySelector('.panel-head')!, MAT_INFO);
     this.matEls = {} as Record<Material, HTMLElement>;
     for (const m of MATERIALS) this.matEls[m] = panel.querySelector(`#mat-${m}`)!;
+    this.matCapEl = panel.querySelector('#mat-cap')!;
   }
 
   private buildTech(container: HTMLElement): void {
@@ -256,6 +262,8 @@ export class Hud {
     for (const m of MATERIALS) {
       this.matEls[m].textContent = Math.round(stats.materials.totals[m]).toLocaleString('es');
     }
+    const n = stats.materials.corralones;
+    this.matCapEl.textContent = n > 0 ? `${n} corralón${n > 1 ? 'es' : ''} · ${CORRALON_CAP} c/u` : 'sin corralón (solo reserva)';
   }
 
   /** Actualiza el panel de tecnología: hitos logrados y el próximo desbloqueo. */

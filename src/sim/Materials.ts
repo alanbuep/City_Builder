@@ -11,13 +11,12 @@
 //    salvo los edificios que exigen corralón —`needsYard`— que solo usan corralón).
 // ---------------------------------------------------------------------------
 import { City } from './City';
-import { Material, MATERIALS, MATERIAL_PRICE, MaterialBag, TileType, TILE_DEF } from './types';
+import { Material, MATERIALS, MATERIAL_LABEL, MATERIAL_PRICE, MaterialBag, TileType, TILE_DEF, CORRALON_CAP } from './types';
 
 // Reserva inicial ("empezar de cero"): alcanza para el kit básico y para levantar
 // la propia cadena de materiales (arenera/cementera/ladrillería/corralón, que NO
 // cuestan materiales). Después, todo se construye con lo que producen los corralones.
 const START_RESERVE: Record<Material, number> = { arena: 80, cemento: 140, ladrillo: 160, madera: 80, acero: 0, electronica: 0 };
-const CORRALON_CAP = 300; // capacidad por material de cada corralón
 const RETAIL_RATE = 4; // cuánto vende una ferretería de cada material por mes
 const EXPORT_MARGIN = 0.7; // exportar paga menos que la venta local
 const DEFAULT_EXPORT_KEEP = 100; // stock mínimo a conservar antes de exportar
@@ -57,6 +56,7 @@ export class MaterialSystem {
     this.width = width;
     this.height = height;
     this.comp = new Int32Array(width * height).fill(-1);
+    this.recomputeTotals(); // totales = reserva inicial (si no, el HUD muestra 0 hasta el primer mes)
   }
 
   // --- Ciclo mensual ---
@@ -72,13 +72,15 @@ export class MaterialSystem {
       if (!def.makes && !def.needsMaterial) return; // solo productoras
 
       const comp = this.componentOfFootprint(city, x, z, tile.size);
-      if (comp < 0 || !hasPower) {
+      const hasYard = comp >= 0 && (this.byComp.get(comp)?.length ?? 0) > 0;
+      // Una productora necesita energía y un corralón conectado (dónde depositar).
+      if (!hasYard || !hasPower) {
         this.idleProducers++;
         return;
       }
-      // Consumir insumo (de los corralones de su red).
+      // Consumir insumo: de los corralones de su red y, si falta, de la reserva.
       if (def.needsMaterial) {
-        if (!this.drawFromComp(comp, def.needsMaterial.material, def.needsMaterial.amount)) {
+        if (!this.drawInput(comp, def.needsMaterial.material, def.needsMaterial.amount)) {
           this.idleProducers++;
           return;
         }
@@ -187,6 +189,33 @@ export class MaterialSystem {
   /** Inventario almacenado en un corralón concreto (para el inspector). */
   stockAt(x: number, z: number): Record<Material, number> {
     return this.stock.get(keyOf(x, z)) ?? emptyBag();
+  }
+
+  /** Cantidad de corralones de la ciudad (para mostrar capacidad de almacenamiento). */
+  get corralonCount(): number {
+    return this.stock.size;
+  }
+
+  /**
+   * Estado de una productora en (x,z) para el inspector: si está produciendo y,
+   * si no, por qué (sin corralón / sin energía / sin insumo).
+   */
+  producerStatusAt(city: City, x: number, z: number, hasPower: boolean): { active: boolean; reason: string } {
+    const tile = city.getTile(x, z);
+    const def = TILE_DEF[tile.type];
+    if (!def.makes && !def.needsMaterial) return { active: false, reason: '' };
+    this.refreshNetwork(city);
+    const comp = this.componentOfFootprint(city, x, z, tile.size);
+    const hasYard = comp >= 0 && (this.byComp.get(comp)?.length ?? 0) > 0;
+    if (!hasYard) return { active: false, reason: 'Conectá un corralón por calle (ahí guarda lo que produce)' };
+    if (!hasPower) return { active: false, reason: 'La ciudad no tiene suficiente energía' };
+    if (def.needsMaterial) {
+      const avail = this.compStock(comp, def.needsMaterial.material) + this.reserve[def.needsMaterial.material];
+      if (avail < def.needsMaterial.amount) {
+        return { active: false, reason: `Falta ${MATERIAL_LABEL[def.needsMaterial.material]}: sumá su productora` };
+      }
+    }
+    return { active: true, reason: '' };
   }
 
   // --- Guardado ---
@@ -308,10 +337,15 @@ export class MaterialSystem {
     return amt; // lo que NO se pudo sacar
   }
 
-  /** Para productoras: consume `amt` solo si hay suficiente en la red. */
-  private drawFromComp(comp: number, m: Material, amt: number): boolean {
-    if (this.compStock(comp, m) < amt) return false;
-    this.takeFromComp(comp, m, amt);
+  /**
+   * Para productoras: consume `amt` de un insumo, de la red (corralón) y, si no
+   * alcanza, de la reserva de la ciudad. Devuelve true solo si se cubrió el total.
+   */
+  private drawInput(comp: number, m: Material, amt: number): boolean {
+    const fromYards = comp >= 0 ? this.compStock(comp, m) : 0;
+    if (fromYards + this.reserve[m] < amt) return false;
+    let need = comp >= 0 ? this.takeFromComp(comp, m, amt) : amt;
+    if (need > 0) this.reserve[m] -= need;
     return true;
   }
 

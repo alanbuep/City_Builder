@@ -10,6 +10,7 @@ import {
   MATERIALS,
   MATERIAL_ICON,
   MaterialBag,
+  CORRALON_CAP,
 } from '../sim/types';
 
 /** "40 🧱 + 30 🪨" a partir de una receta de materiales. */
@@ -168,19 +169,30 @@ export class Inspector {
       const stretch = this.roadStretch?.cells ?? info.roadSegmentSize;
       if (stretch > 1) lines.push(`Tramo elegido: ${stretch} casillas (arrastrá para elegir)`);
     } else if (def.storesMaterials) {
-      lines.push('Corralón: almacena y distribuye materiales por su red de calles. 🏬');
+      lines.push(`Corralón: almacena hasta <b>${CORRALON_CAP}</b> de cada material y los distribuye por su red de calles. 🏬`);
       const s = info.storedMaterials;
-      lines.push(
-        s
-          ? `Guardado: ${MATERIALS.map((m) => `${Math.round(s[m])} ${MATERIAL_ICON[m]}`).join(' · ')}`
-          : 'Sin stock todavía.',
-      );
+      if (s) {
+        lines.push('Guardado (de ' + CORRALON_CAP + ' c/u):');
+        lines.push(MATERIALS.map((m) => {
+          const v = Math.round(s[m]);
+          const col = v >= CORRALON_CAP ? '#ff6b6b' : v > 0 ? '#7CFC9A' : '#888';
+          return `<span style="color:${col}">${v}/${CORRALON_CAP} ${MATERIAL_ICON[m]}</span>`;
+        }).join(' · '));
+      } else {
+        lines.push('Sin stock todavía.');
+      }
       lines.push('<i style="opacity:.8">Las productoras conectadas lo llenan; lo avanzado se construye desde acá.</i>');
     } else if (def.makes || def.needsMaterial) {
       lines.push('Productora de materiales. 🏗️');
       if (def.needsMaterial) lines.push(`Consume: ${def.needsMaterial.amount} ${MATERIAL_ICON[def.needsMaterial.material]} /mes`);
       if (def.makes) lines.push(`Produce: ${def.makes.amount} ${MATERIAL_ICON[def.makes.material]} /mes`);
-      lines.push('<i style="opacity:.8">Necesita energía y un corralón conectado por calle.</i>');
+      const p = info.producer;
+      if (p?.active) {
+        lines.push('<b style="color:#7CFC9A">✅ Produciendo</b>');
+      } else if (p) {
+        lines.push(`<b style="color:#ff6b6b">⏸️ Inactiva</b> — ${p.reason}`);
+      }
+      lines.push('<i style="opacity:.8">Necesita energía y un corralón conectado por calle. El insumo sale del corralón o de la reserva.</i>');
     } else if (def.sellsMaterials) {
       lines.push('Ferretería: vende materiales del corralón a la ciudad → renta. 🔧');
       lines.push(`Empleos comerciales: ${def.shopJobs ?? 0}`);

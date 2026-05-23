@@ -40,6 +40,7 @@ export interface CityStats {
   materials: {
     totals: Record<Material, number>;
     idleProducers: number;
+    corralones: number; // cuántos corralones hay (capacidad de almacenamiento)
   };
 }
 
@@ -59,6 +60,7 @@ export interface TileInfo {
   cityHasWater: boolean;
   cityHasGas: boolean;
   storedMaterials?: Record<Material, number>; // (corralón) materiales que tiene guardados
+  producer?: { active: boolean; reason: string }; // (productoras) si está produciendo y por qué no
   exportKeep?: number; // (terminal) stock mínimo a conservar antes de exportar
   construction?: ConstructionInfo; // (obra) datos de la construcción en curso
   maxLevel: number; // nivel máximo alcanzable con la cobertura actual
@@ -446,6 +448,7 @@ export class Simulation {
       serviceServed: serviceInf ? this.populationInRadius(x, z, serviceInf.radius) : 0,
       serviceCapacity: serviceInf?.capacity ?? 0,
       storedMaterials: tile.type === TileType.BuildYard ? this.materials.stockAt(x, z) : undefined,
+      producer: def.makes || def.needsMaterial ? this.materials.producerStatusAt(this.city, x, z, this.hasPower) : undefined,
       exportKeep: tile.type === TileType.ExportTerminal ? this.materials.exportKeep : undefined,
       construction: this.constructionInfo(x, z),
     };
@@ -679,27 +682,9 @@ export class Simulation {
     if (this.worstCongestion > 1) {
       alerts.push({ id: 'traffic', icon: '🚗', text: 'Tráfico congestionado: mejorá las calles', level: 'warn' });
     }
-    if (this.materials.idleProducers > 0) {
-      alerts.push({ id: 'materials', icon: '🧱', text: 'Productoras inactivas: conectá un corralón por calle o falta energía', level: 'info' });
-    }
-    if (pop > 40 && this.eduCoverageAvg < 0.3) {
-      alerts.push({ id: 'edu', icon: '🏫', text: 'Faltan escuelas: poca cobertura educativa', level: 'info' });
-    }
-    if (pop > 40 && this.healthCoverageAvg < 0.3) {
-      alerts.push({ id: 'health', icon: '🏥', text: 'Falta salud: construí hospitales o clínicas', level: 'info' });
-    }
-    if (pop > 50 && this.foodCoverageAvg < 0.3) {
-      alerts.push({ id: 'food', icon: '🍽️', text: 'Falta comida: sumá cafés, restaurantes o un mercado', level: 'info' });
-    }
-    if (this.demand.residential > 0.6) {
-      alerts.push({ id: 'dr', icon: '🏠', text: 'Alta demanda residencial', level: 'info' });
-    }
-    if (this.demand.commercial > 0.6) {
-      alerts.push({ id: 'dc', icon: '🏢', text: 'Alta demanda comercial', level: 'info' });
-    }
-    if (this.demand.industrial > 0.6) {
-      alerts.push({ id: 'di', icon: '🏭', text: 'Alta demanda industrial', level: 'info' });
-    }
+    // Lo contextual (productoras inactivas, falta de educación/salud/comida, demanda
+    // RCI) ya se ve en la card del edificio o en las barras del HUD, así que NO se
+    // repite acá: estos avisos quedan solo para lo crítico de toda la ciudad.
     return alerts;
   }
 
@@ -1057,6 +1042,7 @@ export class Simulation {
       materials: {
         totals: this.materials.totals,
         idleProducers: this.materials.idleProducers,
+        corralones: this.materials.corralonCount,
       },
     };
   }
