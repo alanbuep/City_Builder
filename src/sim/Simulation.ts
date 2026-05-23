@@ -98,11 +98,11 @@ export interface ConstructionInfo {
   reason: string;
 }
 
-/** Marcador flotante sobre una casilla (nube de sugerencia / obra en curso). */
+/** Marcador flotante sobre una casilla (obra por iniciar / en curso / sugerencia). */
 export interface Marker {
   x: number;
   z: number;
-  kind: 'build' | 'upgrade';
+  kind: 'plan' | 'build' | 'upgrade';
 }
 
 /** Un aviso para el jugador (algo falta o se puede mejorar). */
@@ -291,6 +291,15 @@ export class Simulation {
     return true;
   }
 
+  /** Inicia todas las obras pendientes que se puedan pagar. Devuelve cuántas arrancaron. */
+  startAllConstruction(): number {
+    let n = 0;
+    for (const s of [...this.sites.values()]) {
+      if (s.status === 'planned' && this.startConstruction(s.x, s.z)) n++;
+    }
+    return n;
+  }
+
   /** Obras terminadas desde la última llamada (para avisar y vaciar la cola). */
   drainBuilt(): TileType[] {
     const out = this.justBuilt;
@@ -459,12 +468,12 @@ export class Simulation {
     };
   }
 
-  /** Marcadores flotantes: obras de zona en curso (🏗️) y sugerencias de mejora (💡). */
+  /** Marcadores flotantes: obras por iniciar (▶️), en curso (🏗️) y sugerencias (💡). */
   getMarkers(): Marker[] {
     const out: Marker[] = [];
-    // Obras de ampliación de zona en curso.
+    // Toda obra: ▶️ si espera el OK, 🏗️ si está en construcción.
     for (const s of this.sites.values()) {
-      if (s.targetLevel !== undefined) out.push({ x: s.x, z: s.z, kind: 'build' });
+      out.push({ x: s.x, z: s.z, kind: s.status === 'planned' ? 'plan' : 'build' });
     }
     // Sugerencias de mejora.
     this.city.forEach((tile, x, z) => {

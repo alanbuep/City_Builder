@@ -247,7 +247,8 @@ const checks: Array<[string, boolean]> = [];
   const sim = new Simulation(city);
   city.setType(0, 1, TileType.Road);
   city.setType(0, 0, TileType.Residential);
-  for (let i = 0; i < 20; i++) sim.tick(); // crece a nivel 1 → hay población
+  city.setLevel(0, 0, 1); // garantiza población (sin depender del crecimiento por obra)
+  sim.tick();
   const alerts = sim.getAlerts();
   console.log('[alertas]', alerts.map((a) => a.id));
   checks.push(['avisa cuando falta energía con población', alerts.some((a) => a.id === 'power')]);

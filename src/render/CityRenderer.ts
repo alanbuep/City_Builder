@@ -40,7 +40,7 @@ export class CityRenderer {
   // Marcadores flotantes (nubes de sugerencia / obras de zona).
   private markerGroup = new THREE.Group();
   private markerPool: THREE.Sprite[] = [];
-  private markerMats: Record<'build' | 'upgrade', THREE.SpriteMaterial>;
+  private markerMats: Record<'plan' | 'build' | 'upgrade', THREE.SpriteMaterial>;
 
   private cube = new THREE.BoxGeometry(1, 1, 1);
   private white = new THREE.Color(0xffffff);
@@ -85,12 +85,12 @@ export class CityRenderer {
     this.selected.renderOrder = 2;
     scene.add(this.selected);
 
-    this.markerMats = { build: emojiMaterial('🏗️'), upgrade: emojiMaterial('💡') };
+    this.markerMats = { plan: emojiMaterial('▶️'), build: emojiMaterial('🏗️'), upgrade: emojiMaterial('💡') };
     scene.add(this.markerGroup);
   }
 
   /** Coloca/actualiza los marcadores flotantes (reutiliza un pool de sprites). */
-  setMarkers(markers: Array<{ x: number; z: number; kind: 'build' | 'upgrade' }>): void {
+  setMarkers(markers: Array<{ x: number; z: number; kind: 'plan' | 'build' | 'upgrade' }>): void {
     while (this.markerPool.length < markers.length) {
       const sprite = new THREE.Sprite(this.markerMats.upgrade);
       sprite.scale.set(0.8, 0.8, 0.8);

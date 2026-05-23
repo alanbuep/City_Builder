@@ -25,6 +25,7 @@ export interface HudCallbacks {
   onTogglePause: () => void;
   onSetSpeed: (speed: number) => void;
   onToggleMode: () => void;
+  onStartAll: () => void;
 }
 
 /** Panel de información (dinero, población, demanda RCI, servicios básicos, controles). */
@@ -170,6 +171,17 @@ export class Hud {
     panel.appendChild(this.modeBtn);
     container.appendChild(panel);
     this.setMode('auto');
+
+    const actions = document.createElement('div');
+    actions.className = 'panel controls';
+    const startAllBtn = document.createElement('button');
+    startAllBtn.className = 'ctrl';
+    startAllBtn.style.flex = '1';
+    startAllBtn.textContent = '▶️ Iniciar obras';
+    startAllBtn.title = 'Arranca todas las obras pendientes que puedas pagar';
+    startAllBtn.addEventListener('click', () => this.callbacks.onStartAll());
+    actions.appendChild(startAllBtn);
+    container.appendChild(actions);
   }
 
   private buildControls(container: HTMLElement): void {

@@ -81,6 +81,7 @@ export class Game {
       onTogglePause: () => this.togglePause(),
       onSetSpeed: (s) => this.setSpeed(s),
       onToggleMode: () => this.toggleMode(),
+      onStartAll: () => this.startAllConstruction(),
     });
     this.inspector = new Inspector(inspectorContainer, {
       onUpgrade: () => this.upgradeSelected(),
@@ -107,10 +108,19 @@ export class Game {
       this.roadDragging = false;
       this.roadDragStart = null;
     });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.deselect();
+    });
 
     // Carga la última partida (persiste entre recargas) y activa el autoguardado.
     const saved = loadLocal();
-    if (saved) this.applySave(saved);
+    if (saved) {
+      this.applySave(saved);
+    } else {
+      // Ciudad nueva: arranca en modo Constructor (vos dirigís cada obra).
+      this.sim.mode = 'manual';
+      this.hud.setMode('manual');
+    }
     setInterval(() => this.save(), AUTOSAVE_MS);
 
     this.loop();
@@ -364,6 +374,11 @@ export class Game {
     if (this.selected) this.sim.startConstruction(this.selected.x, this.selected.z);
   }
 
+  /** Inicia todas las obras pendientes que se puedan pagar (botón "Iniciar obras"). */
+  private startAllConstruction(): void {
+    this.sim.startAllConstruction();
+  }
+
   private demolishSelected(): void {
     if (this.selected) this.city.setType(this.selected.x, this.selected.z, TileType.Empty);
   }
@@ -387,6 +402,7 @@ export class Game {
   private applySave(data: SaveData): void {
     this.city.load(data.city); // marca todo sucio → el render se re-sincroniza en el loop
     this.sim.load(data.sim);
+    this.hud.setMode(this.sim.mode); // sincroniza el botón de modo con lo cargado
     this.deselect();
   }
 
