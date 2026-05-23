@@ -61,6 +61,13 @@ export enum TileType {
   Diner = 'diner',
   Restaurant = 'restaurant',
   Market = 'market',
+  // Negocios variados (comercio: empleos, algunos con renta o cobertura):
+  Kiosk = 'kiosk',
+  Boutique = 'boutique',
+  Pharmacy = 'pharmacy',
+  Bank = 'bank',
+  GasStation = 'gasstation',
+  Dealership = 'dealership',
   // Obra en construcción: ocupa el terreno hasta que se completa y aparece el edificio real.
   Construction = 'construction',
 }
@@ -208,6 +215,13 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Diner]: { cost: 180, color: 0xf4511e, height: 0.8, upkeep: 3, shopJobs: 15, food: { radius: 5, strength: 0.9, capacity: 400 }, amenity: { radius: 2, strength: 0.3 } },
   [TileType.Restaurant]: { cost: 300, color: 0xc2185b, height: 1.0, upkeep: 4, shopJobs: 25, food: { radius: 5, strength: 1.0, capacity: 400 }, amenity: { radius: 3, strength: 0.6 } },
   [TileType.Market]: { cost: 400, color: 0x43a047, height: 1.0, upkeep: 5, size: 2, shopJobs: 40, food: { radius: 7, strength: 1.2, capacity: 800 }, amenity: { radius: 2, strength: 0.2 } },
+
+  [TileType.Kiosk]: { cost: 80, color: 0x26a69a, height: 0.5, upkeep: 1, shopJobs: 6 },
+  [TileType.Boutique]: { cost: 200, color: 0xba68c8, height: 0.8, upkeep: 2, shopJobs: 18, amenity: { radius: 2, strength: 0.3 } },
+  [TileType.Pharmacy]: { cost: 220, color: 0x4dd0e1, height: 0.8, upkeep: 3, shopJobs: 12, health: { radius: 4, strength: 0.6, capacity: 250 } },
+  [TileType.Bank]: { cost: 400, color: 0xc9b037, height: 1.2, upkeep: 4, shopJobs: 30, income: 30 },
+  [TileType.GasStation]: { cost: 250, color: 0xef5350, height: 0.5, upkeep: 3, shopJobs: 12, income: 20 },
+  [TileType.Dealership]: { cost: 450, color: 0x7986cb, height: 0.9, upkeep: 5, size: 2, shopJobs: 50, amenity: { radius: 2, strength: 0.2 } },
 
   [TileType.Construction]: { cost: 0, color: 0xffb74d, height: 0.3 }, // cartel/andamio de obra
 };

@@ -52,6 +52,17 @@ const CATEGORIES: Category[] = [
     ],
   },
   {
+    label: '🏪 Negocios',
+    tools: [
+      { tool: TileType.Kiosk, label: '🏪 Kiosco', desc: 'Comercio chico y barato (6 empleos). Ideal para huecos chicos y el arranque.' },
+      { tool: TileType.Boutique, label: '👗 Boutique', desc: 'Tienda de ropa: 18 empleos y sube un poco el valor del suelo.' },
+      { tool: TileType.Pharmacy, label: '💊 Farmacia', desc: 'Comercio (12 empleos) que además da algo de cobertura de salud cercana.' },
+      { tool: TileType.GasStation, label: '⛽ Estación de servicio', desc: '12 empleos + renta fija ($20/mes) por venta de combustible.' },
+      { tool: TileType.Bank, label: '💰 Banco', desc: '30 empleos + renta fija ($30/mes). El negocio financiero de la ciudad.' },
+      { tool: TileType.Dealership, label: '🚗 Concesionaria', desc: 'Edificio 2×2. Mucho empleo comercial (50) y algo de valor del suelo.' },
+    ],
+  },
+  {
     label: '🧱 Materiales',
     tools: [
       { tool: TileType.SandPit, label: '⏳ Arenera', desc: 'Produce 8 de arena por mes (necesita energía y un corralón conectado por calle).' },

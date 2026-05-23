@@ -43,7 +43,7 @@ export const TECHS: TechDef[] = [
     desc: 'Bomberos y red de agua para una ciudad más segura y densa.',
     metric: 'population',
     target: 40,
-    unlocks: [TileType.Fire, TileType.WaterTower, TileType.Cafe, TileType.Diner],
+    unlocks: [TileType.Fire, TileType.WaterTower, TileType.Cafe, TileType.Diner, TileType.Kiosk, TileType.GasStation],
   },
   {
     id: 'welfare',
@@ -52,7 +52,7 @@ export const TECHS: TechDef[] = [
     desc: 'Escuelas, clínicas y hospitales: educación y salud para que la ciudad crezca sana.',
     metric: 'population',
     target: 90,
-    unlocks: [TileType.School, TileType.Clinic, TileType.Hospital, TileType.Market],
+    unlocks: [TileType.School, TileType.Clinic, TileType.Hospital, TileType.Market, TileType.Pharmacy],
   },
   {
     id: 'industry2',
@@ -79,7 +79,7 @@ export const TECHS: TechDef[] = [
     desc: 'Museos, centros comerciales y universidad: cultura, empleo y educación superior.',
     metric: 'population',
     target: 180,
-    unlocks: [TileType.Museum, TileType.ShoppingMall, TileType.University, TileType.Church, TileType.Library, TileType.Restaurant],
+    unlocks: [TileType.Museum, TileType.ShoppingMall, TileType.University, TileType.Church, TileType.Library, TileType.Restaurant, TileType.Boutique, TileType.Dealership],
   },
   {
     id: 'leisure',
@@ -97,7 +97,7 @@ export const TECHS: TechDef[] = [
     desc: 'Un tesoro sólido habilita el gobierno y grandes obras como el estadio.',
     metric: 'money',
     target: 20000,
-    unlocks: [TileType.Government, TileType.Stadium, TileType.Monument, TileType.ExportTerminal],
+    unlocks: [TileType.Government, TileType.Stadium, TileType.Monument, TileType.ExportTerminal, TileType.Bank],
   },
   {
     id: 'bigindustry',

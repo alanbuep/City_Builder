@@ -63,6 +63,12 @@ const NAME: Record<TileType, string> = {
   [TileType.Diner]: 'Casa de comidas 🍔',
   [TileType.Restaurant]: 'Restaurante 🍽️',
   [TileType.Market]: 'Mercado 🛒',
+  [TileType.Kiosk]: 'Kiosco 🏪',
+  [TileType.Boutique]: 'Boutique 👗',
+  [TileType.Pharmacy]: 'Farmacia 💊',
+  [TileType.Bank]: 'Banco 💰',
+  [TileType.GasStation]: 'Estación de servicio ⛽',
+  [TileType.Dealership]: 'Concesionaria 🚗',
   [TileType.Construction]: 'Obra 🚧',
 };
 

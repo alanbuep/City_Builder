@@ -514,6 +514,32 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['el restaurante da cobertura de comida cercana', sim.inspect(2, 0).food > 0]);
 }
 
+// 24) Negocios variados: el banco da renta fija; la farmacia da algo de salud.
+{
+  const c = new City(8, 8);
+  const s = new Simulation(c);
+  s.mode = 'manual';
+  c.setType(0, 1, TileType.Road);
+  c.setType(0, 0, TileType.Bank);
+  c.drainDirty();
+  const before = s.money;
+  s.tick();
+  console.log('[negocios] banco dinero:', before, '→', Math.round(s.money));
+  checks.push(['el banco genera renta', s.money > before]);
+
+  const c2 = new City(10, 10);
+  const s2 = new Simulation(c2);
+  for (let x = 0; x < 10; x++) {
+    c2.setType(x, 1, TileType.Road);
+    c2.setType(x, 0, TileType.Residential);
+  }
+  c2.setType(2, 2, TileType.Pharmacy);
+  c2.drainDirty();
+  s2.tick();
+  console.log('[negocios] farmacia salud:', s2.inspect(2, 0).health.toFixed(2));
+  checks.push(['la farmacia da algo de cobertura de salud', s2.inspect(2, 0).health > 0]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);
