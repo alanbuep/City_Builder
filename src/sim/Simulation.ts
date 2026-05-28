@@ -8,6 +8,7 @@ import {
   maxLevelOf,
   Material,
   MaterialBag,
+  TerrainKind,
   MAX_LEVEL,
   ROAD_MAX_LEVEL,
   ROAD_CAPACITY,
@@ -51,6 +52,7 @@ export interface TileInfo {
   type: TileType;
   level: number;
   size: number; // lado del footprint (1 = una casilla)
+  terrainKind: TerrainKind; // tierra / agua / montaña
   capacity: number;
   hasRoad: boolean;
   value: number; // valor del suelo (amenidades)
@@ -58,6 +60,7 @@ export interface TileInfo {
   education: number; // cobertura educativa recibida
   health: number; // cobertura de salud recibida
   food: number; // cobertura de comida recibida
+  transit: number; // cobertura de transporte público (alivia el tráfico)
   cityHasPower: boolean; // ¿la ciudad produce suficiente energía?
   cityHasWater: boolean;
   cityHasGas: boolean;
@@ -161,6 +164,9 @@ const MERGE_CHANCE = 0.2; // prob. por mes de que un bloque 2×2 de industria se
 const COVERAGE_FOR_L2 = 0.4;
 const COVERAGE_FOR_L3 = 0.9;
 const WELLBEING_GROWTH = 0.5; // cuánto acelera el crecimiento el bienestar (educación + salud)
+const TRANSIT_MAX_RELIEF = 0.7; // el transporte público puede quitar hasta este % del tráfico de una zona
+const WATER_AMENITY_RADIUS = 2; // las casillas junto al agua suben de valor (vista al lago/río)
+const WATER_AMENITY_STRENGTH = 0.35;
 // Rascacielos residenciales (niveles 4-5): además del nivel 3, exigen barrio
 // deseable (valor del suelo por amenidades) y buen bienestar (educación+salud+comida).
 const DESIRABILITY_FOR_L4 = 0.5;
@@ -207,6 +213,7 @@ export class Simulation {
   private education: number[];
   private health: number[];
   private food: number[];
+  private transit: number[];
   private traffic: number[];
   private bonusIncome = 0; // renta fija de edificios (casino, etc.)
   eduCoverageAvg = 0; // cobertura educativa media sobre las zonas residenciales
@@ -231,6 +238,7 @@ export class Simulation {
     this.education = new Array(n).fill(0);
     this.health = new Array(n).fill(0);
     this.food = new Array(n).fill(0);
+    this.transit = new Array(n).fill(0);
     this.traffic = new Array(n).fill(0);
     this.materials = new MaterialSystem(city.width, city.height);
   }
@@ -404,8 +412,8 @@ export class Simulation {
   inspect(x: number, z: number): TileInfo {
     const tile = this.city.getTile(x, z);
     const def = TILE_DEF[tile.type];
-    // Cobertura que atiende población: servicios, educación, salud o comida.
-    const serviceInf = def.service ?? def.education ?? def.health ?? def.food;
+    // Cobertura que atiende población: servicios, educación, salud, comida o transporte.
+    const serviceInf = def.service ?? def.education ?? def.health ?? def.food ?? def.transit;
     const w = this.city.width;
     const i = z * w + x;
     const hasRoad = this.city.hasRoadAccess(x, z);
@@ -429,6 +437,7 @@ export class Simulation {
       type: tile.type,
       level: tile.level,
       size: tile.size,
+      terrainKind: this.city.getTerrain(x, z),
       capacity: capacityOf(tile.type, tile.level),
       hasRoad,
       value: this.desirability[i],
@@ -436,6 +445,7 @@ export class Simulation {
       education: this.education[i],
       health: this.health[i],
       food: this.food[i],
+      transit: this.transit[i],
       cityHasPower: this.hasPower,
       cityHasWater: this.hasWater,
       cityHasGas: this.hasGas,
@@ -800,18 +810,24 @@ export class Simulation {
     this.education.fill(0);
     this.health.fill(0);
     this.food.fill(0);
+    this.transit.fill(0);
     this.city.forEach((tile, x, z) => {
       if (this.city.isSubCell(x, z)) return; // la influencia emana solo del ancla
+      // Vista al agua: las casillas junto a un lago/río valen más (barrio premium).
+      if (this.city.getTerrain(x, z) === 'water') {
+        this.spread(this.desirability, x, z, WATER_AMENITY_RADIUS, WATER_AMENITY_STRENGTH);
+      }
       const def = TILE_DEF[tile.type];
       if (def.amenity) {
         this.spread(this.desirability, x, z, def.amenity.radius, def.amenity.strength);
       }
-      // Servicios, educación, salud y comida: cobertura radial que se diluye si se satura.
+      // Servicios, educación, salud, comida y transporte: cobertura radial que se diluye si se satura.
       for (const [inf, field] of [
         [def.service, this.coverage],
         [def.education, this.education],
         [def.health, this.health],
         [def.food, this.food],
+        [def.transit, this.transit],
       ] as const) {
         if (!inf) continue;
         const factor = this.serviceLoadFactor(x, z, inf);
@@ -863,7 +879,9 @@ export class Simulation {
       const add = (cx: number, cz: number) => {
         if (!this.city.inBounds(cx, cz)) return;
         const t = this.city.getTile(cx, cz);
-        load += capacityOf(t.type, t.level);
+        // El transporte público cercano a la zona quita parte de sus viajes en auto.
+        const relief = Math.min(TRANSIT_MAX_RELIEF, this.transit[cz * w + cx]);
+        load += capacityOf(t.type, t.level) * (1 - relief);
       };
       add(x + 1, z);
       add(x - 1, z);
@@ -972,11 +990,11 @@ export class Simulation {
     this.mergeIndustry();
   }
 
-  /** ¿Las 4 casillas (x,z)..(x+1,z+1) son industria nivel máximo con acceso a calle? */
-  private isMergeableBlock(x: number, z: number): boolean {
+  /** ¿El bloque S×S con esquina (x,z) es todo industria a nivel máximo y con alguna calle al lado? */
+  private isMergeableBlock(x: number, z: number, size = 2): boolean {
     let road = false;
-    for (let dz = 0; dz < 2; dz++) {
-      for (let dx = 0; dx < 2; dx++) {
+    for (let dz = 0; dz < size; dz++) {
+      for (let dx = 0; dx < size; dx++) {
         const cx = x + dx;
         const cz = z + dz;
         if (!this.city.inBounds(cx, cz)) return false;
@@ -989,25 +1007,31 @@ export class Simulation {
   }
 
   /**
-   * Crecimiento "a lo ancho": un bloque 2×2 de industria a nivel máximo (con
-   * calle) se consolida solo en una fábrica mediana. Reúno candidatos y luego
-   * los aplico (re-chequeando, porque una fusión cambia las casillas vecinas).
+   * Crecimiento "a lo ancho": un bloque de industria a nivel máximo (con calle)
+   * se consolida solo en una fábrica. Primero busca complejos 3×3 → fábrica
+   * GRANDE; con lo que quede, bloques 2×2 → fábrica mediana. Reúno candidatos y
+   * los aplico re-chequeando, porque una fusión cambia las casillas vecinas.
    */
   private mergeIndustry(): void {
+    this.mergeBlocks(3, TileType.FactoryLarge);
+    this.mergeBlocks(2, TileType.FactoryMedium);
+  }
+
+  /** Fusiona los bloques S×S de industria a nivel máximo en `factory` (S×S). */
+  private mergeBlocks(size: number, factory: TileType): void {
     const candidates: Array<{ x: number; z: number }> = [];
-    for (let z = 0; z < this.city.height - 1; z++) {
-      for (let x = 0; x < this.city.width - 1; x++) {
-        if (this.isMergeableBlock(x, z)) candidates.push({ x, z });
+    for (let z = 0; z < this.city.height - (size - 1); z++) {
+      for (let x = 0; x < this.city.width - (size - 1); x++) {
+        if (this.isMergeableBlock(x, z, size)) candidates.push({ x, z });
       }
     }
     for (const c of candidates) {
-      if (!this.isMergeableBlock(c.x, c.z)) continue; // pudo haber cambiado por otra fusión
+      if (!this.isMergeableBlock(c.x, c.z, size)) continue; // pudo haber cambiado por otra fusión
       if (Math.random() >= MERGE_CHANCE) continue;
-      this.city.setType(c.x, c.z, TileType.Empty);
-      this.city.setType(c.x + 1, c.z, TileType.Empty);
-      this.city.setType(c.x, c.z + 1, TileType.Empty);
-      this.city.setType(c.x + 1, c.z + 1, TileType.Empty);
-      this.city.placeBuilding(c.x, c.z, TileType.FactoryMedium, 2);
+      for (let dz = 0; dz < size; dz++) {
+        for (let dx = 0; dx < size; dx++) this.city.setType(c.x + dx, c.z + dz, TileType.Empty);
+      }
+      this.city.placeBuilding(c.x, c.z, factory, size);
     }
   }
 

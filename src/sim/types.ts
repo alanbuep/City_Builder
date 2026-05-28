@@ -53,6 +53,10 @@ export enum TileType {
   Library = 'library',
   Monument = 'monument',
   Airport = 'airport',
+  // Transporte público: alivian el tráfico de las calles cercanas.
+  BusStop = 'busstop', // Parada de colectivo
+  TramStop = 'tramstop', // Parada de tranvía
+  MetroStation = 'metro', // Estación de metro
   // Comercio de materiales / exportación:
   Hardware = 'hardware', // Ferretería (vende materiales del corralón a la ciudad)
   ExportTerminal = 'export', // Terminal de exportación (vende el excedente al exterior)
@@ -75,6 +79,14 @@ export enum TileType {
   // Obra en construcción: ocupa el terreno hasta que se completa y aparece el edificio real.
   Construction = 'construction',
 }
+
+/**
+ * Tipo de terreno de una casilla (independiente de lo construido):
+ *  - 'land' = tierra normal, edificable.
+ *  - 'water' = lago/río: NO se puede construir; sube el valor del suelo cercano.
+ *  - 'mountain' = montaña: NO se puede construir.
+ */
+export type TerrainKind = 'land' | 'water' | 'mountain';
 
 /** Materiales de construcción (cadena de producción). */
 export type Material = 'arena' | 'cemento' | 'ladrillo' | 'madera' | 'acero' | 'electronica';
@@ -165,6 +177,7 @@ export interface TileDef {
   education?: Influence; // suma "cobertura educativa" (escuela/universidad)
   health?: Influence; // suma "cobertura de salud" (hospital/clínica)
   food?: Influence; // suma "cobertura de comida" (cafés/restaurantes/mercados)
+  transit?: Influence; // alivia el tráfico de las calles cercanas (transporte público)
   income?: number; // renta fija mensual que genera (p. ej. casino)
   produces?: Production; // genera un servicio básico para toda la ciudad (luz/agua/gas)
   // --- Cadena de materiales ---
@@ -225,6 +238,10 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Library]: { cost: 300, color: 0x795548, height: 1.0, upkeep: 4, education: { radius: 6, strength: 1.2, capacity: 500 }, build: { ladrillo: 15, madera: 8 } },
   [TileType.Monument]: { cost: 800, color: 0xd4af37, height: 2.2, upkeep: 6, size: 2, amenity: { radius: 6, strength: 1.4 }, build: { cemento: 40, ladrillo: 30, madera: 20 } },
   [TileType.Airport]: { cost: 1200, color: 0x546e7a, height: 1.0, upkeep: 12, size: 3, shopJobs: 80, amenity: { radius: 6, strength: 1.0 }, income: 60, build: { cemento: 55, ladrillo: 45, madera: 30 } },
+
+  [TileType.BusStop]: { cost: 130, color: 0x607d8b, height: 0.5, upkeep: 2, transit: { radius: 4, strength: 0.6, capacity: 250 }, build: { cemento: 4, ladrillo: 2 } },
+  [TileType.TramStop]: { cost: 280, color: 0x00838f, height: 0.7, upkeep: 4, transit: { radius: 5, strength: 0.9, capacity: 500 }, build: { cemento: 10, ladrillo: 8, acero: 4 } },
+  [TileType.MetroStation]: { cost: 650, color: 0x283593, height: 1.0, upkeep: 7, size: 2, transit: { radius: 8, strength: 1.4, capacity: 1200 }, build: { cemento: 35, ladrillo: 25, acero: 12 } },
 
   [TileType.Hardware]: { cost: 250, color: 0xff8f00, height: 0.9, upkeep: 3, shopJobs: 20, sellsMaterials: true },
   [TileType.ExportTerminal]: { cost: 500, color: 0x455a64, height: 0.9, upkeep: 5, size: 2, shopJobs: 15, exportsMaterials: true },

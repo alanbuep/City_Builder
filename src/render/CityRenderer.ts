@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { City } from '../sim/City';
-import { TileType, Tile, TILE_DEF, isZone, MAX_LEVEL } from '../sim/types';
+import { TileType, Tile, TerrainKind, TILE_DEF, isZone, MAX_LEVEL } from '../sim/types';
 import { GridSpec, tileCenterX, tileCenterZ } from '../grid';
 
 const ROAD_HEIGHTS = [0.06, 0.1, 0.14]; // calle / avenida / autopista
@@ -159,6 +159,19 @@ export class CityRenderer {
     return { color: new THREE.Color(def.color), height: def.height ?? 0.5, opacity: 1 };
   }
 
+  /** Aspecto del terreno natural (agua/montaña) de una casilla vacía. null = tierra normal. */
+  private terrainAppearance(kind: TerrainKind, x: number, z: number): { color: THREE.Color; height: number; opacity: number } | null {
+    if (kind === 'water') {
+      return { color: new THREE.Color(0x1565c0), height: 0.06, opacity: 0.78 };
+    }
+    if (kind === 'mountain') {
+      // Altura variada (determinista por posición) para que la cordillera no sea plana.
+      const h = 1.0 + ((x * 7 + z * 13) % 5) * 0.28;
+      return { color: new THREE.Color(0x6d6052), height: h, opacity: 1 };
+    }
+    return null;
+  }
+
   updateTile(x: number, z: number): void {
     const k = this.key(x, z);
 
@@ -173,11 +186,15 @@ export class CityRenderer {
     if (this.city.isSubCell(x, z)) return;
 
     const tile = this.city.getTile(x, z);
-    const look = this.appearance(tile);
+    const terrain = this.city.getTerrain(x, z);
+    // Si la casilla está vacía pero el terreno es agua/montaña, dibuja el terreno.
+    const look = this.appearance(tile) ?? (tile.type === TileType.Empty ? this.terrainAppearance(terrain, x, z) : null);
     if (!look) return;
 
     const size = tile.size;
-    const base = tile.type === TileType.Road ? this.grid.tileSize : this.grid.tileSize * 0.9;
+    // Calles y terreno natural cubren toda la casilla; los edificios dejan un margen.
+    const fullTile = tile.type === TileType.Road || (tile.type === TileType.Empty && terrain !== 'land');
+    const base = fullTile ? this.grid.tileSize : this.grid.tileSize * 0.9;
     const footprint = base + (size - 1) * this.grid.tileSize; // 1×1 = base; más grande crece por casilla
 
     const mesh = new THREE.Mesh(

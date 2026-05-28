@@ -59,6 +59,9 @@ const NAME: Record<TileType, string> = {
   [TileType.Library]: 'Biblioteca 📚',
   [TileType.Monument]: 'Monumento 🗽',
   [TileType.Airport]: 'Aeropuerto ✈️',
+  [TileType.BusStop]: 'Parada de colectivo 🚏',
+  [TileType.TramStop]: 'Parada de tranvía 🚋',
+  [TileType.MetroStation]: 'Estación de metro 🚇',
   [TileType.Hardware]: 'Ferretería 🔧',
   [TileType.ExportTerminal]: 'Terminal de exportación 🚢',
   [TileType.Cafe]: 'Café ☕',
@@ -159,7 +162,16 @@ export class Inspector {
     const lines: string[] = [];
 
     if (info.type === TileType.Empty) {
-      lines.push('Terreno libre. Construí algo aquí.');
+      if (info.terrainKind === 'water') {
+        this.titleEl.textContent = 'Agua 🌊';
+        lines.push('Lago / río. No se puede construir acá.');
+        lines.push('<i style="opacity:.8">💧 Las casillas cercanas valen más (vista al agua).</i>');
+      } else if (info.terrainKind === 'mountain') {
+        this.titleEl.textContent = 'Montaña ⛰️';
+        lines.push('Terreno montañoso. No se puede construir acá.');
+      } else {
+        lines.push('Terreno libre. Construí algo aquí.');
+      }
     } else if (info.type === TileType.Road) {
       lines.push(`Tipo: ${ROAD_LEVEL_NAME[info.level]}`);
       lines.push(`Tráfico: ${Math.round(info.traffic)} / ${info.roadCapacity}`);
@@ -168,6 +180,7 @@ export class Inspector {
       lines.push(`Congestión: <b style="color:${col}">${pct}%</b>`);
       const stretch = this.roadStretch?.cells ?? info.roadSegmentSize;
       if (stretch > 1) lines.push(`Tramo elegido: ${stretch} casillas (arrastrá para elegir)`);
+      if (info.transit > 0.001) lines.push('<i style="opacity:.8">🚌 El transporte público cercano le quita tráfico</i>');
     } else if (def.storesMaterials) {
       lines.push(`Corralón: almacena hasta <b>${CORRALON_CAP}</b> de cada material y los distribuye por su red de calles. 🏬`);
       const s = info.storedMaterials;
@@ -203,14 +216,16 @@ export class Inspector {
       lines.push('<i style="opacity:.8">Ajustá con ➖/➕. Necesita un corralón conectado por calle.</i>');
       this.exMinusBtn.style.display = '';
       this.exPlusBtn.style.display = '';
-    } else if (def.service || def.education || def.health || def.food) {
+    } else if (def.service || def.education || def.health || def.food || def.transit) {
       const label = def.education
         ? 'cobertura educativa 🎓'
         : def.health
           ? 'cobertura de salud 🏥'
           : def.food
             ? 'comida 🍽️'
-            : 'cobertura de servicios 🛡️';
+            : def.transit
+              ? 'transporte público 🚌'
+              : 'cobertura de servicios 🛡️';
       lines.push(`Brinda ${label}.`);
       const over = info.serviceServed > info.serviceCapacity;
       const col = over ? '#ff6b6b' : '#7CFC9A';
@@ -219,9 +234,11 @@ export class Inspector {
       lines.push(
         over
           ? '<i style="opacity:.8">⚠️ Saturada: construí otra cerca</i>'
-          : def.service
-            ? 'Las zonas cercanas pueden crecer más alto.'
-            : 'Las zonas cercanas crecen más rápido. ✨',
+          : def.transit
+            ? 'Descongestiona las calles de las zonas cercanas. 🚌'
+            : def.service
+              ? 'Las zonas cercanas pueden crecer más alto.'
+              : 'Las zonas cercanas crecen más rápido. ✨',
       );
     } else if (def.produces) {
       const KIND: Record<string, string> = { power: 'energía ⚡', water: 'agua 💧', gas: 'gas 🔥' };
@@ -262,7 +279,7 @@ export class Inspector {
       if (info.value > 0.001) lines.push(`Valor del suelo: +${info.value.toFixed(2)}`);
       if (info.type === TileType.Residential) {
         const pct = (v: number) => `${Math.round(Math.min(1, v) * 100)}%`;
-        lines.push(`🎓 ${pct(info.education)} · 🏥 ${pct(info.health)} · 🍽️ ${pct(info.food)}`);
+        lines.push(`🎓 ${pct(info.education)} · 🏥 ${pct(info.health)} · 🍽️ ${pct(info.food)} · 🚌 ${pct(info.transit)}`);
       }
     }
     if (def.build) {

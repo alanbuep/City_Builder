@@ -670,6 +670,92 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['se reporta la producción de cemento', M.produced.cemento > 0]);
 }
 
+// 30) Transporte público: una parada cerca de las zonas alivia el tráfico de la calle.
+{
+  const build = () => {
+    const city = new City(12, 12);
+    const sim = new Simulation(city);
+    for (let x = 0; x < 12; x++) {
+      city.setType(x, 5, TileType.Road);
+      city.setType(x, 4, TileType.Residential);
+      city.setLevel(x, 4, 3); // mucha gente → mucho tráfico hacia la calle
+      city.setType(x, 6, TileType.Commercial);
+      city.setLevel(x, 6, 3);
+    }
+    city.drainDirty();
+    return { city, sim };
+  };
+  const a = build();
+  a.sim.tick();
+  const trafficNoTransit = a.sim.inspect(5, 5).traffic;
+
+  const b = build();
+  b.city.placeBuilding(4, 0, TileType.MetroStation, 2); // estación cerca de las zonas
+  b.city.drainDirty();
+  b.sim.tick();
+  const trafficWithTransit = b.sim.inspect(5, 5).traffic;
+  console.log('[transporte] tráfico sin → con metro:', Math.round(trafficNoTransit), '→', Math.round(trafficWithTransit));
+  checks.push(['el transporte público alivia el tráfico de la calle', trafficWithTransit < trafficNoTransit]);
+  checks.push(['la estación de metro brinda cobertura de transporte', b.sim.inspect(5, 4).transit > 0]);
+}
+
+// 31) Complejo industrial: un bloque 3×3 de industria a nivel máximo (con calle) → fábrica grande.
+{
+  const city = new City(16, 16);
+  const sim = new Simulation(city);
+  for (let x = 2; x < 6; x++) city.setType(x, 8, TileType.Road); // calle al lado del bloque
+  const force = () => {
+    // Población lejos para que haya demanda industrial positiva.
+    for (let z = 0; z < 4; z++) {
+      for (let x = 10; x < 16; x++) {
+        city.setType(x, z, TileType.Residential);
+        city.setLevel(x, z, 3);
+      }
+    }
+    for (let dz = 0; dz < 3; dz++) {
+      for (let dx = 0; dx < 3; dx++) {
+        city.setType(2 + dx, 5 + dz, TileType.Industrial);
+        city.setLevel(2 + dx, 5 + dz, 3);
+      }
+    }
+  };
+  force();
+  let mergedLarge = false;
+  for (let i = 0; i < 200 && !mergedLarge; i++) {
+    sim.tick();
+    if (city.getTile(2, 5).type === TileType.FactoryLarge) mergedLarge = true;
+    else if (city.getTile(2, 5).type !== TileType.FactoryMedium) force();
+    else break; // se fusionó en mediana (2×2): no es lo que buscamos, cortamos
+  }
+  console.log('[complejo 3×3] bloque industrial → fábrica grande:', mergedLarge, '| en (2,5):', city.getTile(2, 5).type);
+  checks.push(['un bloque 3×3 de industria se fusiona en fábrica grande', mergedLarge]);
+}
+
+// 32) Terreno: el agua no es edificable y sube el valor del suelo cercano; guardar/cargar lo conserva.
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  city.setTerrain(5, 5, 'water');
+  city.setTerrain(0, 0, 'mountain');
+  city.drainDirty();
+  checks.push(['no se puede construir sobre agua', city.isBuildable(5, 5) === false]);
+  checks.push(['no se puede construir sobre montaña', city.isBuildable(0, 0) === false]);
+  checks.push(['la tierra normal sí es edificable', city.isBuildable(3, 3) === true]);
+
+  sim.tick();
+  console.log('[terreno] valor del suelo junto al agua:', sim.inspect(5, 6).value.toFixed(2), '| inspect terreno:', sim.inspect(5, 5).terrainKind);
+  checks.push(['el agua sube el valor del suelo cercano', sim.inspect(5, 6).value > 0]);
+  checks.push(['inspect reporta el tipo de terreno', sim.inspect(5, 5).terrainKind === 'water']);
+
+  const city2 = new City(10, 10);
+  city2.load(city.serialize());
+  console.log('[terreno guardado] agua en (5,5):', city2.getTerrain(5, 5), '| montaña en (0,0):', city2.getTerrain(0, 0));
+  checks.push([
+    'guardar/cargar conserva el terreno (agua + montaña)',
+    city2.getTerrain(5, 5) === 'water' && city2.getTerrain(0, 0) === 'mountain' && city2.getTerrain(3, 3) === 'land',
+  ]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);

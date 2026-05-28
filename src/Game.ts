@@ -109,7 +109,11 @@ export class Game {
       this.roadDragStart = null;
     });
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.deselect();
+      // Escape: vuelve a la herramienta de selección 🔍 (para clickear edificios y ver su info).
+      if (e.key === 'Escape') {
+        this.toolbar.useSelect();
+        this.deselect();
+      }
     });
 
     // Carga la última partida (persiste entre recargas) y activa el autoguardado.
@@ -117,9 +121,10 @@ export class Game {
     if (saved) {
       this.applySave(saved);
     } else {
-      // Ciudad nueva: arranca en modo Constructor (vos dirigís cada obra).
+      // Ciudad nueva: arranca en modo Constructor (vos dirigís cada obra) + terreno natural.
       this.sim.mode = 'manual';
       this.hud.setMode('manual');
+      this.generateTerrain();
     }
     setInterval(() => this.save(), AUTOSAVE_MS);
 
@@ -176,6 +181,8 @@ export class Game {
       this.cityRenderer.setHover(coord, size, this.canPlaceSite(coord, size) ? 'valid' : 'invalid');
     } else if (tool !== TileType.Empty && this.isProtected(this.city.getTile(coord.x, coord.z))) {
       this.cityRenderer.setHover(coord, 1, 'invalid'); // pintar acá pisaría un edificio
+    } else if (tool !== TileType.Empty && !this.city.isBuildable(coord.x, coord.z)) {
+      this.cityRenderer.setHover(coord, 1, 'invalid'); // no se construye en agua ni montaña
     } else {
       this.cityRenderer.setHover(coord, size, 'normal'); // zonas, calles, demoler
     }
@@ -211,6 +218,7 @@ export class Game {
         const cx = coord.x + dx;
         const cz = coord.z + dz;
         if (!this.city.inBounds(cx, cz)) return false;
+        if (!this.city.isBuildable(cx, cz)) return false; // no en agua ni montaña
         if (this.city.getTile(cx, cz).type !== TileType.Empty) return false;
       }
     }
@@ -298,6 +306,7 @@ export class Game {
 
     const tile = this.city.getTile(coord.x, coord.z);
     if (tool !== TileType.Empty && this.isProtected(tile)) return; // no destruir un edificio al pintar
+    if (tool !== TileType.Empty && !this.city.isBuildable(coord.x, coord.z)) return; // no en agua ni montaña
 
     const prevType = tile.type;
     const prevLevel = tile.level;
@@ -417,8 +426,59 @@ export class Game {
     );
     if (!ok) return;
     this.city.clear();
+    this.generateTerrain();
     this.sim.reset();
     this.deselect();
+  }
+
+  /**
+   * Genera el terreno natural de una ciudad nueva: un lago, un grupo de montañas
+   * y (a veces) un río que NO cruza todo el mapa — todavía no hay puentes, así que
+   * dejo siempre tierra alrededor para poder trazar calles. No se puede construir
+   * sobre agua/montaña; las casillas junto al agua valen más (vista al lago/río).
+   */
+  private generateTerrain(): void {
+    const { width, height } = this.grid;
+    const clampX = (v: number) => Math.max(0, Math.min(width - 1, v));
+
+    // Lago: una mancha circular de borde irregular, en el centro del mapa.
+    const lakeX = 5 + Math.floor(Math.random() * (width - 10));
+    const lakeZ = 5 + Math.floor(Math.random() * (height - 10));
+    const lakeR = 2.5 + Math.random() * 2.5;
+    for (let z = 0; z < height; z++) {
+      for (let x = 0; x < width; x++) {
+        if (Math.hypot(x - lakeX, z - lakeZ) + (Math.random() - 0.5) * 1.6 < lakeR) {
+          this.city.setTerrain(x, z, 'water');
+        }
+      }
+    }
+
+    // Río (50%): serpentea desde el borde superior hacia abajo, pero se corta antes
+    // de llegar al fondo para no partir el mapa en dos (no hay puentes aún).
+    if (Math.random() < 0.5) {
+      let rx = clampX(Math.floor(width * (0.2 + Math.random() * 0.6)));
+      const stop = Math.floor(height * (0.55 + Math.random() * 0.25));
+      for (let z = 0; z < stop; z++) {
+        rx = clampX(rx + Math.round((Math.random() - 0.5) * 2));
+        this.city.setTerrain(rx, z, 'water');
+        if (Math.random() < 0.4) this.city.setTerrain(clampX(rx + 1), z, 'water'); // ancho variable
+      }
+    }
+
+    // Montañas: un grupo compacto en una esquina al azar (no pisa el agua).
+    const mx = Math.random() < 0.5 ? 0 : width - 1;
+    const mz = Math.random() < 0.5 ? 0 : height - 1;
+    const mr = 2.5 + Math.random() * 2;
+    for (let z = 0; z < height; z++) {
+      for (let x = 0; x < width; x++) {
+        if (
+          Math.hypot(x - mx, z - mz) + (Math.random() - 0.5) * 1.4 < mr &&
+          this.city.getTerrain(x, z) === 'land'
+        ) {
+          this.city.setTerrain(x, z, 'mountain');
+        }
+      }
+    }
   }
 
   private importCity(file: File): void {

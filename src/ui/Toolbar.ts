@@ -35,7 +35,7 @@ const CATEGORIES: Category[] = [
   {
     label: '🏭 Industria',
     tools: [
-      { tool: TileType.Industrial, label: '🏭 Industrial (zona)', desc: 'Da empleos (barra I). Si un bloque 2×2 llega al máximo con calle, se fusiona solo en una fábrica mediana.' },
+      { tool: TileType.Industrial, label: '🏭 Industrial (zona)', desc: 'Da empleos (barra I). Si un bloque 2×2 a nivel máximo con calle se fusiona solo en una fábrica mediana; un bloque 3×3, en una fábrica grande.' },
       { tool: TileType.FactorySmall, label: '🏭 Fábrica chica', desc: 'Fábrica 1×1. Da 20 empleos al instante, sin esperar a que crezca.' },
       { tool: TileType.FactoryMedium, label: '🏭 Fábrica mediana', desc: 'Fábrica 2×2. Da 90 empleos. Es en lo que se fusionan las zonas industriales.' },
       { tool: TileType.FactoryLarge, label: '🏭 Fábrica grande', desc: 'Fábrica 3×3. Da 220 empleos. El motor de una gran ciudad industrial.' },
@@ -83,6 +83,14 @@ const CATEGORIES: Category[] = [
       { tool: TileType.Police, label: '🚓 Policía', desc: 'Cobertura de servicios (radio 5) para que las zonas crezcan a niveles altos. Atiende ~250 habitantes.' },
       { tool: TileType.Fire, label: '🚒 Bomberos', desc: 'Cobertura de servicios (radio 5). Atiende ~250 habitantes.' },
       { tool: TileType.Government, label: '🏛️ Gobierno', desc: 'Edificio 2×2. Gran cobertura de servicios (radio 7). Atiende ~600 habitantes.' },
+    ],
+  },
+  {
+    label: '🚍 Transporte',
+    tools: [
+      { tool: TileType.BusStop, label: '🚏 Parada de colectivo', desc: 'Alivia el tráfico de las calles cercanas (radio 4): la gente cerca viaja en colectivo en vez de auto. Atiende ~250 hab.' },
+      { tool: TileType.TramStop, label: '🚋 Parada de tranvía', desc: 'Más alivio de tráfico que el colectivo (radio 5). Atiende ~500 hab.' },
+      { tool: TileType.MetroStation, label: '🚇 Estación de metro', desc: 'Edificio 2×2. El que más descongestiona (radio 8): clave para una metrópolis densa. Atiende ~1200 hab.' },
     ],
   },
   {
@@ -304,6 +312,11 @@ export class Toolbar {
     this.current = tool;
     this.updateCurrentLabel();
     this.closePopup();
+  }
+
+  /** Vuelve a la herramienta de selección 🔍 (p. ej. al apretar Escape). */
+  useSelect(): void {
+    this.select('select');
   }
 
   private showTip(text: string, near: HTMLElement): void {

@@ -1,4 +1,4 @@
-import { TileType, Tile, maxLevelOf } from './types';
+import { TileType, Tile, TerrainKind, maxLevelOf } from './types';
 
 /** Una casilla construida, para guardar. Las vacías no se guardan. */
 export interface TileSave {
@@ -10,11 +10,19 @@ export interface TileSave {
   anchor: { x: number; z: number } | null;
 }
 
-/** La ciudad serializada (solo las casillas no vacías). */
+/** Una casilla con terreno no normal (agua/montaña), para guardar. */
+export interface TerrainSave {
+  x: number;
+  z: number;
+  kind: TerrainKind;
+}
+
+/** La ciudad serializada (solo las casillas no vacías + el terreno no normal). */
 export interface CitySave {
   width: number;
   height: number;
   tiles: TileSave[];
+  terrain?: TerrainSave[]; // opcional: las partidas viejas no lo tienen (todo 'land')
 }
 
 /**
@@ -32,6 +40,7 @@ export class City {
   readonly width: number;
   readonly height: number;
   private tiles: Tile[];
+  private terrain: TerrainKind[];
   private dirty = new Set<number>();
 
   constructor(width = 32, height = 32) {
@@ -43,6 +52,7 @@ export class City {
       anchor: null,
       size: 1,
     }));
+    this.terrain = new Array(width * height).fill('land');
   }
 
   inBounds(x: number, z: number): boolean {
@@ -55,6 +65,25 @@ export class City {
 
   getTile(x: number, z: number): Tile {
     return this.tiles[this.index(x, z)];
+  }
+
+  /** Tipo de terreno de la casilla ('land' por defecto). */
+  getTerrain(x: number, z: number): TerrainKind {
+    return this.terrain[this.index(x, z)];
+  }
+
+  /** ¿Se puede construir en esta casilla? (no en agua ni montaña). */
+  isBuildable(x: number, z: number): boolean {
+    return this.inBounds(x, z) && this.terrain[this.index(x, z)] === 'land';
+  }
+
+  /** Cambia el terreno de una casilla (y la marca para redibujar). */
+  setTerrain(x: number, z: number, kind: TerrainKind): void {
+    if (!this.inBounds(x, z)) return;
+    const i = this.index(x, z);
+    if (this.terrain[i] === kind) return;
+    this.terrain[i] = kind;
+    this.dirty.add(i);
   }
 
   /** ¿Es una casilla "secundaria" de un edificio multi-casilla (no el ancla)? */
@@ -160,18 +189,21 @@ export class City {
 
   // --- Guardado / carga ---
 
-  /** Guarda solo las casillas no vacías. */
+  /** Guarda solo las casillas no vacías + el terreno no normal (agua/montaña). */
   serialize(): CitySave {
     const tiles: TileSave[] = [];
+    const terrain: TerrainSave[] = [];
     this.forEach((tile, x, z) => {
       if (tile.type !== TileType.Empty) {
         tiles.push({ x, z, type: tile.type, level: tile.level, size: tile.size, anchor: tile.anchor });
       }
+      const k = this.terrain[this.index(x, z)];
+      if (k !== 'land') terrain.push({ x, z, kind: k });
     });
-    return { width: this.width, height: this.height, tiles };
+    return { width: this.width, height: this.height, tiles, terrain };
   }
 
-  /** Vacía toda la grilla (y marca todo para redibujar). */
+  /** Vacía toda la grilla y el terreno (y marca todo para redibujar). */
   clear(): void {
     for (let i = 0; i < this.tiles.length; i++) {
       const t = this.tiles[i];
@@ -179,6 +211,7 @@ export class City {
       t.level = 0;
       t.anchor = null;
       t.size = 1;
+      this.terrain[i] = 'land';
       this.dirty.add(i);
     }
   }
@@ -193,6 +226,11 @@ export class City {
       tile.level = t.level;
       tile.size = t.size ?? 1;
       tile.anchor = t.anchor ?? null;
+      this.dirty.add(this.index(t.x, t.z));
+    }
+    for (const t of data.terrain ?? []) {
+      if (!this.inBounds(t.x, t.z)) continue;
+      this.terrain[this.index(t.x, t.z)] = t.kind;
       this.dirty.add(this.index(t.x, t.z));
     }
   }

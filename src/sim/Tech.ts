@@ -43,7 +43,7 @@ export const TECHS: TechDef[] = [
     desc: 'Bomberos y red de agua para una ciudad más segura y densa.',
     metric: 'population',
     target: 40,
-    unlocks: [TileType.Fire, TileType.WaterTower, TileType.Cafe, TileType.Diner, TileType.Kiosk, TileType.GasStation],
+    unlocks: [TileType.Fire, TileType.WaterTower, TileType.Cafe, TileType.Diner, TileType.Kiosk, TileType.GasStation, TileType.BusStop],
   },
   {
     id: 'welfare',
@@ -79,7 +79,7 @@ export const TECHS: TechDef[] = [
     desc: 'Museos, centros comerciales y universidad: cultura, empleo y educación superior.',
     metric: 'population',
     target: 180,
-    unlocks: [TileType.Museum, TileType.ShoppingMall, TileType.University, TileType.Church, TileType.Library, TileType.Restaurant, TileType.Boutique, TileType.Dealership],
+    unlocks: [TileType.Museum, TileType.ShoppingMall, TileType.University, TileType.Church, TileType.Library, TileType.Restaurant, TileType.Boutique, TileType.Dealership, TileType.TramStop],
   },
   {
     id: 'leisure',
@@ -115,7 +115,7 @@ export const TECHS: TechDef[] = [
     desc: 'Hoteles y torres de oficinas, el sello de una gran ciudad.',
     metric: 'population',
     target: 600,
-    unlocks: [TileType.Hotel, TileType.OfficeTower, TileType.Airport],
+    unlocks: [TileType.Hotel, TileType.OfficeTower, TileType.Airport, TileType.MetroStation],
   },
 ];
 
