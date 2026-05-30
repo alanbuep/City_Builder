@@ -20,14 +20,18 @@ export interface TechDef {
   unlocks: TileType[]; // edificios que habilita
 }
 
-/** Edificios disponibles desde el comienzo (no requieren tecnología). */
+/**
+ * Edificios disponibles desde el comienzo (no requieren tecnología). El comercio
+ * ya no es una zona: arranca con el Kiosco (comercio ploppable) y la industria con
+ * la Fábrica chica. (Commercial/Industrial siguen existiendo en la simulación para
+ * partidas viejas, pero no se colocan a mano.)
+ */
 export const BASE_UNLOCKED: TileType[] = [
   TileType.Empty, // demoler
   TileType.Road,
   TileType.Residential,
-  TileType.Commercial,
-  TileType.Industrial,
-  TileType.FactorySmall,
+  TileType.Kiosk, // comercio inicial (reemplaza la vieja zona comercial)
+  TileType.FactorySmall, // industria inicial
   TileType.Police,
   TileType.PowerPlant,
   TileType.Park,
@@ -43,7 +47,7 @@ export const TECHS: TechDef[] = [
     desc: 'Bomberos y red de agua para una ciudad más segura y densa.',
     metric: 'population',
     target: 40,
-    unlocks: [TileType.Fire, TileType.WaterTower, TileType.Cafe, TileType.Diner, TileType.Kiosk, TileType.GasStation, TileType.BusStop],
+    unlocks: [TileType.Fire, TileType.WaterTower, TileType.Cafe, TileType.Diner, TileType.Pizzeria, TileType.HotDog, TileType.GasStation, TileType.BusStop],
   },
   {
     id: 'welfare',
@@ -52,7 +56,7 @@ export const TECHS: TechDef[] = [
     desc: 'Escuelas, clínicas y hospitales: educación y salud para que la ciudad crezca sana.',
     metric: 'population',
     target: 90,
-    unlocks: [TileType.School, TileType.Clinic, TileType.Hospital, TileType.Market, TileType.Pharmacy],
+    unlocks: [TileType.School, TileType.Clinic, TileType.Hospital, TileType.Market, TileType.Pharmacy, TileType.Burger, TileType.Bakery, TileType.IceCream],
   },
   {
     id: 'industry2',

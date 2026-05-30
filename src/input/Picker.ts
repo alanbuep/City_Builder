@@ -27,15 +27,20 @@ export class Picker {
     private grid: GridSpec,
   ) {}
 
-  /** Devuelve la casilla bajo el cursor, o null si apunta fuera de la cuadrícula. */
-  tileAt(event: PointerEvent): TileCoord | null {
+  /** Configura y devuelve el rayo desde la cámara a través del cursor (reutilizable). */
+  rayFrom(event: PointerEvent): THREE.Raycaster {
     const rect = this.dom.getBoundingClientRect();
     // Coordenadas normalizadas del dispositivo: -1..+1 en ambos ejes.
     this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    if (!this.raycaster.ray.intersectPlane(this.groundPlane, this.hitPoint)) {
+    return this.raycaster;
+  }
+
+  /** Devuelve la casilla bajo el cursor, o null si apunta fuera de la cuadrícula. */
+  tileAt(event: PointerEvent): TileCoord | null {
+    const ray = this.rayFrom(event);
+    if (!ray.ray.intersectPlane(this.groundPlane, this.hitPoint)) {
       return null; // el rayo no corta el suelo (mirando al cielo)
     }
 

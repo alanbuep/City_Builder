@@ -65,6 +65,12 @@ export enum TileType {
   Diner = 'diner',
   Restaurant = 'restaurant',
   Market = 'market',
+  // Locales de comida temáticos (bien identificables; reemplazan a la vieja "zona comercial"):
+  Pizzeria = 'pizzeria',
+  Burger = 'burger', // Hamburguesería
+  HotDog = 'hotdog', // Panchería
+  IceCream = 'icecream', // Heladería
+  Bakery = 'bakery', // Panadería
   // Negocios variados (comercio: empleos, algunos con renta o cobertura):
   Kiosk = 'kiosk',
   Boutique = 'boutique',
@@ -178,6 +184,7 @@ export interface TileDef {
   health?: Influence; // suma "cobertura de salud" (hospital/clínica)
   food?: Influence; // suma "cobertura de comida" (cafés/restaurantes/mercados)
   transit?: Influence; // alivia el tráfico de las calles cercanas (transporte público)
+  pollution?: { radius: number; strength: number }; // contaminación: baja el valor del suelo y frena el crecimiento en su área cuadrada
   income?: number; // renta fija mensual que genera (p. ej. casino)
   produces?: Production; // genera un servicio básico para toda la ciudad (luz/agua/gas)
   // --- Cadena de materiales ---
@@ -197,9 +204,9 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Commercial]: { cost: 20, color: 0x2196f3 },
   [TileType.Industrial]: { cost: 20, color: 0xffc107 },
 
-  [TileType.FactorySmall]: { cost: 80, color: 0xe65100, height: 0.8, upkeep: 1, jobs: 20, build: { ladrillo: 10, cemento: 6 } },
-  [TileType.FactoryMedium]: { cost: 300, color: 0xe65100, height: 1.2, upkeep: 3, size: 2, jobs: 90, build: { ladrillo: 28, cemento: 18, madera: 8 } },
-  [TileType.FactoryLarge]: { cost: 700, color: 0xbf360c, height: 1.7, upkeep: 6, size: 3, jobs: 220, build: { ladrillo: 45, cemento: 35, acero: 15 } },
+  [TileType.FactorySmall]: { cost: 80, color: 0xe65100, height: 0.8, upkeep: 1, jobs: 20, pollution: { radius: 2, strength: 0.4 }, build: { ladrillo: 10, cemento: 6 } },
+  [TileType.FactoryMedium]: { cost: 300, color: 0xe65100, height: 1.2, upkeep: 3, size: 2, jobs: 90, pollution: { radius: 3, strength: 0.6 }, build: { ladrillo: 28, cemento: 18, madera: 8 } },
+  [TileType.FactoryLarge]: { cost: 700, color: 0xbf360c, height: 1.7, upkeep: 6, size: 3, jobs: 220, pollution: { radius: 4, strength: 0.9 }, build: { ladrillo: 45, cemento: 35, acero: 15 } },
 
   [TileType.Park]: { cost: 50, color: 0x2e7d32, height: 0.28, amenity: { radius: 3, strength: 0.6 }, build: { madera: 6 } },
   [TileType.Plaza]: { cost: 30, color: 0x66bb6a, height: 0.2, amenity: { radius: 2, strength: 0.4 }, build: { ladrillo: 4 } },
@@ -210,9 +217,9 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Fire]: { cost: 200, color: 0xc62828, height: 0.9, upkeep: 4, service: { radius: 5, strength: 1.0, capacity: 250 }, build: { ladrillo: 12, cemento: 8 } },
   [TileType.Government]: { cost: 500, color: 0x546e7a, height: 1.4, upkeep: 8, size: 2, service: { radius: 7, strength: 1.5, capacity: 600 }, build: { cemento: 40, ladrillo: 28 } },
 
-  [TileType.PowerPlant]: { cost: 500, color: 0xfdd835, height: 1.5, upkeep: 6, size: 2, produces: { kind: 'power', amount: 400 }, build: { cemento: 30, ladrillo: 20 } },
+  [TileType.PowerPlant]: { cost: 500, color: 0xfdd835, height: 1.5, upkeep: 6, size: 2, produces: { kind: 'power', amount: 400 }, pollution: { radius: 4, strength: 0.8 }, build: { cemento: 30, ladrillo: 20 } },
   [TileType.WaterTower]: { cost: 300, color: 0x29b6f6, height: 1.3, upkeep: 4, produces: { kind: 'water', amount: 350 }, build: { cemento: 14, ladrillo: 8 } },
-  [TileType.GasPlant]: { cost: 350, color: 0xff7043, height: 1.2, upkeep: 4, produces: { kind: 'gas', amount: 320 }, build: { cemento: 14, ladrillo: 10 } },
+  [TileType.GasPlant]: { cost: 350, color: 0xff7043, height: 1.2, upkeep: 4, produces: { kind: 'gas', amount: 320 }, pollution: { radius: 3, strength: 0.6 }, build: { cemento: 14, ladrillo: 10 } },
 
   [TileType.ShoppingMall]: { cost: 400, color: 0x00897b, height: 1.1, upkeep: 5, size: 2, shopJobs: 70, amenity: { radius: 3, strength: 0.4 }, build: { ladrillo: 30, cemento: 20 } },
   [TileType.Hotel]: { cost: 450, color: 0xd81b60, height: 1.8, upkeep: 5, size: 2, shopJobs: 50, amenity: { radius: 5, strength: 0.8 }, build: { ladrillo: 28, cemento: 20, madera: 12 } },
@@ -220,8 +227,8 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.TechPark]: { cost: 700, color: 0x00acc1, height: 1.0, upkeep: 7, size: 2, jobs: 150, amenity: { radius: 3, strength: 0.5 }, build: { ladrillo: 28, cemento: 20, madera: 12 } },
 
   [TileType.SandPit]: { cost: 150, color: 0xd2b48c, height: 0.6, upkeep: 2, jobs: 10, makes: { material: 'arena', amount: 16 } },
-  [TileType.CementPlant]: { cost: 250, color: 0x90a4ae, height: 1.1, upkeep: 3, jobs: 15, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'cemento', amount: 4 } },
-  [TileType.BrickKiln]: { cost: 250, color: 0xb24a3a, height: 1.0, upkeep: 3, jobs: 15, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'ladrillo', amount: 5 } },
+  [TileType.CementPlant]: { cost: 250, color: 0x90a4ae, height: 1.1, upkeep: 3, jobs: 15, pollution: { radius: 3, strength: 0.6 }, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'cemento', amount: 4 } },
+  [TileType.BrickKiln]: { cost: 250, color: 0xb24a3a, height: 1.0, upkeep: 3, jobs: 15, pollution: { radius: 2, strength: 0.5 }, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'ladrillo', amount: 5 } },
   [TileType.BuildYard]: { cost: 300, color: 0x8d6e63, height: 0.8, upkeep: 3, size: 2, shopJobs: 20, storesMaterials: true },
   [TileType.TechCompany]: { cost: 800, color: 0x00bcd4, height: 1.5, upkeep: 8, size: 2, jobs: 200, amenity: { radius: 3, strength: 0.4 }, build: { ladrillo: 30, acero: 30, electronica: 15 }, needsYard: true },
 
@@ -251,9 +258,16 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Restaurant]: { cost: 300, color: 0xc2185b, height: 1.0, upkeep: 4, shopJobs: 25, food: { radius: 5, strength: 1.0, capacity: 400 }, amenity: { radius: 3, strength: 0.6 }, build: { ladrillo: 12, madera: 8 } },
   [TileType.Market]: { cost: 400, color: 0x43a047, height: 1.0, upkeep: 5, size: 2, shopJobs: 40, food: { radius: 7, strength: 1.2, capacity: 800 }, amenity: { radius: 2, strength: 0.2 }, build: { ladrillo: 26, cemento: 16, madera: 8 } },
 
+  // Locales de comida temáticos (1×1, bien identificables). Cobertura de comida + empleos.
+  [TileType.Pizzeria]: { cost: 160, color: 0xd84315, height: 0.8, upkeep: 2, shopJobs: 14, food: { radius: 4, strength: 0.8, capacity: 350 }, amenity: { radius: 2, strength: 0.3 }, build: { ladrillo: 6, madera: 4 } },
+  [TileType.Burger]: { cost: 170, color: 0xfbc02d, height: 0.8, upkeep: 2, shopJobs: 14, food: { radius: 4, strength: 0.8, capacity: 350 }, build: { ladrillo: 6, madera: 4 } },
+  [TileType.HotDog]: { cost: 90, color: 0xef6c00, height: 0.5, upkeep: 1, shopJobs: 7, food: { radius: 3, strength: 0.6, capacity: 200 }, build: { madera: 4 } },
+  [TileType.IceCream]: { cost: 120, color: 0xf48fb1, height: 0.6, upkeep: 1, shopJobs: 8, food: { radius: 3, strength: 0.6, capacity: 200 }, amenity: { radius: 2, strength: 0.3 }, build: { ladrillo: 4, madera: 4 } },
+  [TileType.Bakery]: { cost: 140, color: 0xa1887f, height: 0.7, upkeep: 2, shopJobs: 10, food: { radius: 4, strength: 0.7, capacity: 300 }, build: { ladrillo: 6, madera: 4 } },
+
   [TileType.SawMill]: { cost: 200, color: 0x8d6e63, height: 0.9, upkeep: 3, jobs: 12, makes: { material: 'madera', amount: 6 } },
-  [TileType.SteelMill]: { cost: 350, color: 0x607d8a, height: 1.3, upkeep: 5, size: 2, jobs: 30, makes: { material: 'acero', amount: 4 } },
-  [TileType.ElectronicsFactory]: { cost: 400, color: 0x5e35b1, height: 1.2, upkeep: 5, size: 2, jobs: 40, needsMaterial: { material: 'acero', amount: 3 }, makes: { material: 'electronica', amount: 2 } },
+  [TileType.SteelMill]: { cost: 350, color: 0x607d8a, height: 1.3, upkeep: 5, size: 2, jobs: 30, pollution: { radius: 3, strength: 0.7 }, makes: { material: 'acero', amount: 4 } },
+  [TileType.ElectronicsFactory]: { cost: 400, color: 0x5e35b1, height: 1.2, upkeep: 5, size: 2, jobs: 40, pollution: { radius: 2, strength: 0.4 }, needsMaterial: { material: 'acero', amount: 3 }, makes: { material: 'electronica', amount: 2 } },
 
   [TileType.Kiosk]: { cost: 80, color: 0x26a69a, height: 0.5, upkeep: 1, shopJobs: 6, build: { madera: 4, ladrillo: 2 } },
   [TileType.Boutique]: { cost: 200, color: 0xba68c8, height: 0.8, upkeep: 2, shopJobs: 18, amenity: { radius: 2, strength: 0.3 }, build: { ladrillo: 8, madera: 5 } },

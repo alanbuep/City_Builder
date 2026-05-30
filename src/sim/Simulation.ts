@@ -15,6 +15,7 @@ import {
 } from './types';
 import { TECHS, BASE_UNLOCKED, TechDef, TechMetric, METRIC_LABEL } from './Tech';
 import { MaterialSystem, MaterialsSave } from './Materials';
+import { DisasterSystem, DisasterSave } from './Disasters';
 
 export interface Demand {
   residential: number;
@@ -45,6 +46,13 @@ export interface CityStats {
     idleProducers: number;
     corralones: number; // cuántos corralones hay (capacidad de almacenamiento)
   };
+  // Cobertura de servicios por población (0..1), para los medidores del HUD.
+  coverage: {
+    security: number;
+    health: number;
+    education: number;
+    food: number;
+  };
 }
 
 /** Detalle de UNA casilla, para el panel inspector. */
@@ -56,11 +64,12 @@ export interface TileInfo {
   capacity: number;
   hasRoad: boolean;
   value: number; // valor del suelo (amenidades)
-  coverage: number; // cobertura de servicios recibida
-  education: number; // cobertura educativa recibida
-  health: number; // cobertura de salud recibida
-  food: number; // cobertura de comida recibida
-  transit: number; // cobertura de transporte público (alivia el tráfico)
+  pollution: number; // contaminación recibida en esta casilla (0..n)
+  coverage: number; // cobertura de seguridad (global, por población)
+  education: number; // cobertura educativa (global, por población)
+  health: number; // cobertura de salud (global, por población)
+  food: number; // cobertura de comida (global, por población)
+  transit: number; // cobertura de transporte público (alivia el tráfico, espacial)
   cityHasPower: boolean; // ¿la ciudad produce suficiente energía?
   cityHasWater: boolean;
   cityHasGas: boolean;
@@ -133,6 +142,7 @@ export interface SimSave {
   unlocked: string[]; // ids de tecnologías ya desbloqueadas
   materials?: MaterialsSave; // stock de materiales (opcional: partidas viejas no lo tienen)
   construction?: Construction[]; // obras en curso (opcional)
+  disasters?: DisasterSave; // catástrofes en curso (opcional)
 }
 
 /** Progreso tecnológico para el HUD: cuánto se desbloqueó y el próximo hito. */
@@ -165,6 +175,7 @@ const COVERAGE_FOR_L2 = 0.4;
 const COVERAGE_FOR_L3 = 0.9;
 const WELLBEING_GROWTH = 0.5; // cuánto acelera el crecimiento el bienestar (educación + salud)
 const TRANSIT_MAX_RELIEF = 0.7; // el transporte público puede quitar hasta este % del tráfico de una zona
+const POLLUTION_BLOCK = 0.6; // contaminación a partir de la cual una casilla no sube de nivel 1
 const WATER_AMENITY_RADIUS = 2; // las casillas junto al agua suben de valor (vista al lago/río)
 const WATER_AMENITY_STRENGTH = 0.35;
 // Rascacielos residenciales (niveles 4-5): además del nivel 3, exigen barrio
@@ -203,22 +214,27 @@ export class Simulation {
   powerSupply = 0;
   waterSupply = 0;
   gasSupply = 0;
+  utilityDemand = 0; // consumo de servicios básicos = casas + comercios + industria
   hasPower = false;
   hasWater = false;
   hasGas = false;
   worstCongestion = 0; // peor congestión de carretera (para avisos)
 
-  private desirability: number[];
-  private coverage: number[];
-  private education: number[];
-  private health: number[];
-  private food: number[];
-  private transit: number[];
+  private desirability: number[]; // valor del suelo (amenidades + vista al agua) — espacial
+  private transit: number[]; // alivio de tráfico del transporte público — espacial
+  private pollution: number[]; // contaminación de fábricas/centrales — espacial (cuadrada)
   private traffic: number[];
   private bonusIncome = 0; // renta fija de edificios (casino, etc.)
-  eduCoverageAvg = 0; // cobertura educativa media sobre las zonas residenciales
-  healthCoverageAvg = 0;
-  foodCoverageAvg = 0;
+
+  // Cobertura POR POBLACIÓN (global, como luz/agua/gas): capacidad total / población (0..1).
+  securityCoverage = 0; // policía / bomberos / gobierno
+  healthCoverage = 0; // hospital / clínica / farmacia
+  educationCoverage = 0; // escuela / universidad / biblioteca
+  foodCoverage = 0; // cafés / restaurantes / locales de comida
+  private securityCap = 0; // capacidad total instalada de cada categoría (para el inspector)
+  private healthCap = 0;
+  private educationCap = 0;
+  private foodCap = 0;
 
   // Tecnología: hitos ya logrados + cola de los recién desbloqueados (para avisar).
   private unlocked = new Set<string>();
@@ -227,6 +243,9 @@ export class Simulation {
   // Cadena de materiales (inventario por corralón + logística por calles).
   readonly materials: MaterialSystem;
 
+  // Catástrofes (incendios; luego meteoritos/tornados/huracanes).
+  readonly disasters: DisasterSystem;
+
   // Obras en construcción (clave "x,z" del ancla) + cola de las recién terminadas.
   private sites = new Map<string, Construction>();
   private justBuilt: TileType[] = [];
@@ -234,13 +253,11 @@ export class Simulation {
   constructor(private city: City) {
     const n = city.width * city.height;
     this.desirability = new Array(n).fill(0);
-    this.coverage = new Array(n).fill(0);
-    this.education = new Array(n).fill(0);
-    this.health = new Array(n).fill(0);
-    this.food = new Array(n).fill(0);
     this.transit = new Array(n).fill(0);
+    this.pollution = new Array(n).fill(0);
     this.traffic = new Array(n).fill(0);
     this.materials = new MaterialSystem(city.width, city.height);
+    this.disasters = new DisasterSystem(city);
   }
 
   get jobs(): number {
@@ -253,6 +270,7 @@ export class Simulation {
 
   tick(): void {
     this.advanceConstruction();
+    this.disasters.tick(); // los incendios crecen/se propagan/destruyen antes de recontar
     this.recount();
     this.computeDemographics();
     this.computeDemand();
@@ -412,8 +430,15 @@ export class Simulation {
   inspect(x: number, z: number): TileInfo {
     const tile = this.city.getTile(x, z);
     const def = TILE_DEF[tile.type];
-    // Cobertura que atiende población: servicios, educación, salud, comida o transporte.
-    const serviceInf = def.service ?? def.education ?? def.health ?? def.food ?? def.transit;
+    // Servicios "por población" (global): atienden a toda la ciudad → población vs capacidad
+    // total de su categoría. El transporte sigue siendo espacial (atiende su área).
+    let served = 0;
+    let serviceCap = 0;
+    if (def.service) { served = this.population; serviceCap = this.securityCap; }
+    else if (def.health) { served = this.population; serviceCap = this.healthCap; }
+    else if (def.education) { served = this.population; serviceCap = this.educationCap; }
+    else if (def.food) { served = this.population; serviceCap = this.foodCap; }
+    else if (def.transit) { served = this.populationInRadius(x, z, def.transit.radius); serviceCap = def.transit.capacity ?? 0; }
     const w = this.city.width;
     const i = z * w + x;
     const hasRoad = this.city.hasRoadAccess(x, z);
@@ -441,10 +466,11 @@ export class Simulation {
       capacity: capacityOf(tile.type, tile.level),
       hasRoad,
       value: this.desirability[i],
-      coverage: this.coverage[i],
-      education: this.education[i],
-      health: this.health[i],
-      food: this.food[i],
+      pollution: this.pollution[i],
+      coverage: this.securityCoverage,
+      education: this.educationCoverage,
+      health: this.healthCoverage,
+      food: this.foodCoverage,
       transit: this.transit[i],
       cityHasPower: this.hasPower,
       cityHasWater: this.hasWater,
@@ -456,9 +482,8 @@ export class Simulation {
       roadCapacity,
       congestion: isRoad ? this.traffic[i] / roadCapacity : 0,
       roadSegmentSize: segmentSize,
-      // Para el panel, las plantas (servicios básicos) se muestran como servicios.
-      serviceServed: serviceInf ? this.populationInRadius(x, z, serviceInf.radius) : 0,
-      serviceCapacity: serviceInf?.capacity ?? 0,
+      serviceServed: served,
+      serviceCapacity: serviceCap,
       storedMaterials: tile.type === TileType.BuildYard ? this.materials.stockAt(x, z) : undefined,
       producer: def.makes || def.needsMaterial ? this.materials.producerStatusAt(this.city, x, z, this.hasPower) : undefined,
       exportKeep: tile.type === TileType.ExportTerminal ? this.materials.exportKeep : undefined,
@@ -575,6 +600,7 @@ export class Simulation {
       unlocked: [...this.unlocked],
       materials: this.materials.serialize(),
       construction: [...this.sites.values()],
+      disasters: this.disasters.serialize(),
     };
   }
 
@@ -586,6 +612,7 @@ export class Simulation {
     this.materials.load(data.materials);
     this.sites.clear();
     for (const s of data.construction ?? []) this.sites.set(this.siteKey(s.x, s.z), s);
+    this.disasters.load(data.disasters);
     this.refresh();
   }
 
@@ -596,6 +623,7 @@ export class Simulation {
     this.unlocked.clear();
     this.materials.reset();
     this.sites.clear();
+    this.disasters.reset();
     this.refresh();
   }
 
@@ -694,10 +722,56 @@ export class Simulation {
     if (this.worstCongestion > 1) {
       alerts.push({ id: 'traffic', icon: '🚗', text: 'Tráfico congestionado: mejorá las calles', level: 'warn' });
     }
+    if (this.disasters.burningCount > 0) {
+      alerts.push({
+        id: 'fire',
+        icon: '🔥',
+        text: `¡Incendio! ${this.disasters.burningCount} casilla(s) en llamas — hacen falta bomberos`,
+        level: 'warn',
+      });
+    }
     // Lo contextual (productoras inactivas, falta de educación/salud/comida, demanda
     // RCI) ya se ve en la card del edificio o en las barras del HUD, así que NO se
     // repite acá: estos avisos quedan solo para lo crítico de toda la ciudad.
     return alerts;
+  }
+
+  /**
+   * Qué "opina" el vecino de una casilla residencial habitada, según su entorno
+   * (luz, tráfico, comida, salud, educación, seguridad, valor del suelo). Devuelve
+   * el ánimo + una frase corta para mostrar en una burbuja; null si no aplica.
+   */
+  opinionAt(x: number, z: number): { mood: 'good' | 'bad'; text: string } | null {
+    const tile = this.city.getTile(x, z);
+    if (tile.type !== TileType.Residential || tile.level <= 0) return null;
+    const i = z * this.city.width + x;
+    const pollution = this.pollution[i];
+    const value = this.desirability[i] - pollution; // la contaminación baja el valor percibido
+    const edu = this.educationCoverage; // coberturas globales (por población)
+    const hea = this.healthCoverage;
+    const foo = this.foodCoverage;
+    const cov = this.securityCoverage;
+
+    // Quejas (en orden de prioridad: lo más crítico primero).
+    if (pollution >= POLLUTION_BLOCK) return { mood: 'bad', text: '¡Mucha contaminación! 🏭🤢' };
+    if (!this.hasPower) return { mood: 'bad', text: '¡Necesitamos luz! ⚡' };
+    let nearbyTraffic = 0;
+    for (const [nx, nz] of [[x, z - 1], [x + 1, z], [x, z + 1], [x - 1, z]] as Array<[number, number]>) {
+      if (this.city.inBounds(nx, nz)) nearbyTraffic = Math.max(nearbyTraffic, this.getCongestion(nx, nz));
+    }
+    if (nearbyTraffic > 1) return { mood: 'bad', text: '¡Hay mucho tráfico! 🚗' };
+    if (foo < 0.25) return { mood: 'bad', text: 'Falta dónde comer 🍔' };
+    if (hea < 0.25) return { mood: 'bad', text: 'Falta un hospital 🏥' };
+    if (edu < 0.25) return { mood: 'bad', text: 'Falta una escuela 🎓' };
+    if (cov < 0.25) return { mood: 'bad', text: 'Inseguro por acá 🚓' };
+    if (pollution > 0.2) return { mood: 'bad', text: 'Hay olor a fábrica 😷' };
+    if (value < 0.15) return { mood: 'bad', text: 'El barrio es aburrido 😕' };
+
+    // Contento.
+    const happy = value + (edu + hea + foo) / 3;
+    if (happy > 1.1) return { mood: 'good', text: '¡Qué lindo vivir acá! 😍' };
+    if (value > 0.5) return { mood: 'good', text: 'Me encanta el barrio 🌳' };
+    return { mood: 'good', text: 'Todo bien por acá 🙂' };
   }
 
   // --- Cálculos internos ---
@@ -711,6 +785,11 @@ export class Simulation {
     let power = 0;
     let water = 0;
     let gas = 0;
+    // Capacidad instalada de los servicios "por población" (seguridad/salud/educación/comida).
+    let secCap = 0;
+    let healthCap = 0;
+    let eduCap = 0;
+    let foodCap = 0;
 
     this.city.forEach((tile, x, z) => {
       if (this.city.isSubCell(x, z)) return; // no contar dos veces un edificio multi-casilla
@@ -719,6 +798,10 @@ export class Simulation {
       income += def.income ?? 0; // renta fija (casino, etc.)
       industrial += def.jobs ?? 0; // empleos de las fábricas
       commercial += def.shopJobs ?? 0; // empleos de negocios especializados
+      secCap += def.service?.capacity ?? 0;
+      healthCap += def.health?.capacity ?? 0;
+      eduCap += def.education?.capacity ?? 0;
+      foodCap += def.food?.capacity ?? 0;
       if (def.produces) {
         if (def.produces.kind === 'power') power += def.produces.amount;
         else if (def.produces.kind === 'water') water += def.produces.amount;
@@ -743,15 +826,28 @@ export class Simulation {
     this.totalUpkeep = upkeep;
     this.bonusIncome = income;
 
-    // Servicios básicos: hace falta producir al menos tanto como la población
-    // (y tener al menos una planta, si no la ciudad no tiene ese suministro).
+    // Servicios básicos: los consumen las CASAS + los COMERCIOS + la INDUSTRIA
+    // (no solo la población). Así, demoler edificios baja el consumo y libera red.
+    // Las plantas hace falta tenerlas (si no, la ciudad no tiene ese suministro).
     this.powerSupply = power;
     this.waterSupply = water;
     this.gasSupply = gas;
-    const need = Math.max(1, pop);
-    this.hasPower = power >= need;
-    this.hasWater = water >= need;
-    this.hasGas = gas >= need;
+    this.utilityDemand = pop + Math.round(0.5 * (commercial + industrial));
+    const utilNeed = Math.max(1, this.utilityDemand);
+    this.hasPower = power >= utilNeed;
+    this.hasWater = water >= utilNeed;
+    this.hasGas = gas >= utilNeed;
+
+    // Cobertura por población: capacidad instalada / habitantes (toda la ciudad).
+    const popNeed = Math.max(1, pop);
+    this.securityCap = secCap;
+    this.healthCap = healthCap;
+    this.educationCap = eduCap;
+    this.foodCap = foodCap;
+    this.securityCoverage = Math.min(1, secCap / popNeed);
+    this.healthCoverage = Math.min(1, healthCap / popNeed);
+    this.educationCoverage = Math.min(1, eduCap / popNeed);
+    this.foodCoverage = Math.min(1, foodCap / popNeed);
   }
 
   private computeDemographics(): void {
@@ -772,7 +868,11 @@ export class Simulation {
     this.demand = { residential: norm(rawR), commercial: norm(rawC), industrial: norm(rawI) };
   }
 
-  /** Reparte una influencia radial (con caída lineal) sobre un campo. */
+  /**
+   * Reparte una influencia CUADRADA (con caída lineal) sobre un campo. Usa
+   * distancia de Chebyshev (max de |dx|,|dz|) en vez de radial: así el área es un
+   * cuadrado de lado 2·radio+1, que se puede teselar para cubrir zonas enteras.
+   */
   private spread(field: number[], x: number, z: number, radius: number, strength: number): void {
     const w = this.city.width;
     for (let dz = -radius; dz <= radius; dz++) {
@@ -780,14 +880,13 @@ export class Simulation {
         const nx = x + dx;
         const nz = z + dz;
         if (!this.city.inBounds(nx, nz)) continue;
-        const dist = Math.hypot(dx, dz);
-        if (dist > radius) continue;
-        field[nz * w + nx] += strength * (1 - dist / radius);
+        const dist = Math.max(Math.abs(dx), Math.abs(dz)); // Chebyshev → cobertura cuadrada
+        field[nz * w + nx] += strength * (1 - dist / (radius + 1));
       }
     }
   }
 
-  /** Habitantes que viven dentro de un radio (para saturar servicios). */
+  /** Habitantes que viven dentro del área cuadrada de un servicio (para saturarlo). */
   private populationInRadius(x: number, z: number, radius: number): number {
     let pop = 0;
     for (let dz = -radius; dz <= radius; dz++) {
@@ -795,7 +894,6 @@ export class Simulation {
         const nx = x + dx;
         const nz = z + dz;
         if (!this.city.inBounds(nx, nz)) continue;
-        if (Math.hypot(dx, dz) > radius) continue;
         const t = this.city.getTile(nx, nz);
         if (t.type === TileType.Residential) pop += capacityOf(t.type, t.level);
       }
@@ -803,14 +901,16 @@ export class Simulation {
     return pop;
   }
 
-  /** Valor del suelo (amenidades), cobertura de servicios, educación y salud. */
+  /**
+   * Campos ESPACIALES: valor del suelo (amenidades + vista al agua), alivio del
+   * transporte público y contaminación de fábricas/centrales. Los servicios
+   * (seguridad/salud/educación/comida) ya NO son espaciales: son por población
+   * (se calculan en recount como capacidad/habitantes).
+   */
   private computeInfluence(): void {
     this.desirability.fill(0);
-    this.coverage.fill(0);
-    this.education.fill(0);
-    this.health.fill(0);
-    this.food.fill(0);
     this.transit.fill(0);
+    this.pollution.fill(0);
     this.city.forEach((tile, x, z) => {
       if (this.city.isSubCell(x, z)) return; // la influencia emana solo del ancla
       // Vista al agua: las casillas junto a un lago/río valen más (barrio premium).
@@ -821,45 +921,21 @@ export class Simulation {
       if (def.amenity) {
         this.spread(this.desirability, x, z, def.amenity.radius, def.amenity.strength);
       }
-      // Servicios, educación, salud, comida y transporte: cobertura radial que se diluye si se satura.
-      for (const [inf, field] of [
-        [def.service, this.coverage],
-        [def.education, this.education],
-        [def.health, this.health],
-        [def.food, this.food],
-        [def.transit, this.transit],
-      ] as const) {
-        if (!inf) continue;
-        const factor = this.serviceLoadFactor(x, z, inf);
-        this.spread(field, x, z, inf.radius, inf.strength * factor);
+      // Transporte público: alivia el tráfico cercano (espacial, se satura por población).
+      if (def.transit) {
+        const factor = this.serviceLoadFactor(x, z, def.transit);
+        this.spread(this.transit, x, z, def.transit.radius, def.transit.strength * factor);
+      }
+      // Contaminación: ensucia su área cuadrada (baja el valor del suelo y frena el crecimiento).
+      if (def.pollution) {
+        this.spread(this.pollution, x, z, def.pollution.radius, def.pollution.strength);
       }
     });
-    this.computeWellbeing();
   }
 
-  /** Promedia educación, salud y comida sobre las zonas residenciales (para avisos). */
-  private computeWellbeing(): void {
-    const w = this.city.width;
-    let edu = 0;
-    let hea = 0;
-    let foo = 0;
-    let homes = 0;
-    this.city.forEach((tile, x, z) => {
-      if (tile.type !== TileType.Residential || tile.level <= 0) return;
-      homes++;
-      edu += Math.min(1, this.education[z * w + x]);
-      hea += Math.min(1, this.health[z * w + x]);
-      foo += Math.min(1, this.food[z * w + x]);
-    });
-    this.eduCoverageAvg = homes > 0 ? edu / homes : 0;
-    this.healthCoverageAvg = homes > 0 ? hea / homes : 0;
-    this.foodCoverageAvg = homes > 0 ? foo / homes : 0;
-  }
-
-  /** Bono de crecimiento por bienestar (educación + salud + comida) en una casilla. */
-  private wellbeingAt(x: number, z: number): number {
-    const i = z * this.city.width + x;
-    return (Math.min(1, this.education[i]) + Math.min(1, this.health[i]) + Math.min(1, this.food[i])) / 3;
+  /** Bienestar global (promedio de educación, salud y comida por población). */
+  private wellbeing(): number {
+    return (this.educationCoverage + this.healthCoverage + this.foodCoverage) / 3;
   }
 
   /** Eficacia de un servicio: 1 si no está saturado, menos si sobra población. */
@@ -896,21 +972,23 @@ export class Simulation {
 
   private maxLevelFor(x: number, z: number): number {
     const i = z * this.city.width + x;
-    const cov = this.coverage[i];
+    const sec = this.securityCoverage; // cobertura de seguridad por población (global)
     let max = 1;
-    // Nivel 2: la ciudad necesita energía + servicios (policía/etc.) cerca.
+    // Nivel 2: la ciudad necesita energía + seguridad suficiente (policía/etc.).
     // Nivel 3: además agua y gas suficientes.
-    if (this.hasPower && cov >= COVERAGE_FOR_L2) max = 2;
-    if (this.hasPower && this.hasWater && this.hasGas && cov >= COVERAGE_FOR_L3) max = 3;
+    if (this.hasPower && sec >= COVERAGE_FOR_L2) max = 2;
+    if (this.hasPower && this.hasWater && this.hasGas && sec >= COVERAGE_FOR_L3) max = 3;
     const type = this.city.getTile(x, z).type;
     // Rascacielos residenciales (niveles 4-5): partiendo del nivel 3, suben solo
-    // donde el barrio es deseable (amenidades) y tiene buen bienestar.
+    // donde el barrio es deseable (amenidades, descontando contaminación) y hay buen bienestar.
     if (type === TileType.Residential && max >= 3) {
-      const value = this.desirability[i];
-      const wb = this.wellbeingAt(x, z);
+      const value = this.desirability[i] - this.pollution[i];
+      const wb = this.wellbeing();
       if (value >= DESIRABILITY_FOR_L4 && wb >= WELLBEING_FOR_L4) max = 4;
       if (value >= DESIRABILITY_FOR_L5 && wb >= WELLBEING_FOR_L5) max = 5;
     }
+    // Contaminación fuerte: frena el crecimiento (no se sube de nivel 1 en zona muy sucia).
+    if (this.pollution[i] >= POLLUTION_BLOCK) max = 1;
     return Math.min(max, maxLevelOf(type));
   }
 
@@ -969,13 +1047,13 @@ export class Simulation {
             ? commercial
             : industrial;
 
-      const value = this.desirability[z * w + x];
+      const value = this.desirability[z * w + x] - this.pollution[z * w + x]; // la contaminación resta
 
       if (dem > DEMAND_THRESHOLD && this.city.hasRoadAccess(x, z)) {
         const maxLv = this.maxLevelFor(x, z);
         const tf = this.trafficFactor(x, z);
-        // El bienestar (educación + salud) acelera el crecimiento donde hay cobertura.
-        const wb = 1 + WELLBEING_GROWTH * this.wellbeingAt(x, z);
+        // El bienestar (educación + salud + comida, por población) acelera el crecimiento.
+        const wb = 1 + WELLBEING_GROWTH * this.wellbeing();
         if (tile.level < maxLv && Math.random() < GROW_CHANCE * dem * (1 + value) * tf * wb) {
           this.beginZoneConstruction(x, z, true); // crecimiento orgánico = obra gratis con progreso
         }
@@ -1061,9 +1139,9 @@ export class Simulation {
       unemploymentRate: this.unemploymentRate,
       demand: this.demand,
       utilities: {
-        power: { supply: this.powerSupply, demand: this.population },
-        water: { supply: this.waterSupply, demand: this.population },
-        gas: { supply: this.gasSupply, demand: this.population },
+        power: { supply: this.powerSupply, demand: this.utilityDemand },
+        water: { supply: this.waterSupply, demand: this.utilityDemand },
+        gas: { supply: this.gasSupply, demand: this.utilityDemand },
       },
       materials: {
         totals: this.materials.totals,
@@ -1071,6 +1149,12 @@ export class Simulation {
         consumed: this.materials.consumed,
         idleProducers: this.materials.idleProducers,
         corralones: this.materials.corralonCount,
+      },
+      coverage: {
+        security: this.securityCoverage,
+        health: this.healthCoverage,
+        education: this.educationCoverage,
+        food: this.foodCoverage,
       },
     };
   }

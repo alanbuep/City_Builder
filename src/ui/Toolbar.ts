@@ -26,17 +26,15 @@ const CATEGORIES: Category[] = [
     ],
   },
   {
-    label: '🏙️ Zonas',
+    label: '🏠 Residencial',
     tools: [
-      { tool: TileType.Residential, label: '🏠 Residencial', desc: 'Donde vive la gente. Crece con la demanda (barra R) y los servicios cercanos.' },
-      { tool: TileType.Commercial, label: '🏢 Comercial', desc: 'Tiendas y oficinas. Dan empleo y atienden a la población (barra C).' },
+      { tool: TileType.Residential, label: '🏠 Residencial', desc: 'Donde vive la gente. Es la única zona: crece con la demanda (barra R) y los servicios cercanos. El comercio y la industria ahora se colocan como edificios (no son zonas).' },
     ],
   },
   {
-    label: '🏭 Industria',
+    label: '🏭 Fábricas',
     tools: [
-      { tool: TileType.Industrial, label: '🏭 Industrial (zona)', desc: 'Da empleos (barra I). Si un bloque 2×2 a nivel máximo con calle se fusiona solo en una fábrica mediana; un bloque 3×3, en una fábrica grande.' },
-      { tool: TileType.FactorySmall, label: '🏭 Fábrica chica', desc: 'Fábrica 1×1. Da 20 empleos al instante, sin esperar a que crezca.' },
+      { tool: TileType.FactorySmall, label: '🏭 Fábrica chica', desc: 'Fábrica 1×1. Da 20 empleos al instante. La demanda industrial (barra I) te indica cuándo poner más.' },
       { tool: TileType.FactoryMedium, label: '🏭 Fábrica mediana', desc: 'Fábrica 2×2. Da 90 empleos. Es en lo que se fusionan las zonas industriales.' },
       { tool: TileType.FactoryLarge, label: '🏭 Fábrica grande', desc: 'Fábrica 3×3. Da 220 empleos. El motor de una gran ciudad industrial.' },
       { tool: TileType.TechPark, label: '🔬 Parque tecnológico', desc: 'Edificio 2×2. Empleo industrial limpio (150) y agradable: sube el valor del suelo cercano.' },
@@ -123,9 +121,14 @@ const CATEGORIES: Category[] = [
     label: '🍽️ Comida',
     tools: [
       { tool: TileType.Cafe, label: '☕ Café', desc: 'Cobertura de comida chica + 8 empleos. La población necesita comida cerca para crecer mejor.' },
-      { tool: TileType.Diner, label: '🍔 Casa de comidas', desc: 'Comida rápida: buena cobertura de comida (radio 5) + 15 empleos.' },
+      { tool: TileType.HotDog, label: '🌭 Panchería', desc: 'Local chico y barato: cobertura de comida (radio 3) + 7 empleos. Ideal para huecos.' },
+      { tool: TileType.IceCream, label: '🍦 Heladería', desc: 'Comida (radio 3) + 8 empleos y sube un poco el valor del suelo.' },
+      { tool: TileType.Pizzeria, label: '🍕 Pizzería', desc: 'Comida (radio 4) + 14 empleos y algo de valor del suelo.' },
+      { tool: TileType.Burger, label: '🍔 Hamburguesería', desc: 'Comida rápida (radio 4) + 14 empleos.' },
+      { tool: TileType.Bakery, label: '🥖 Panadería', desc: 'Comida (radio 4) + 10 empleos.' },
+      { tool: TileType.Diner, label: '🍴 Casa de comidas', desc: 'Comida rápida: buena cobertura de comida (radio 5) + 15 empleos.' },
       { tool: TileType.Restaurant, label: '🍽️ Restaurante', desc: 'Más empleos (25) y sube el valor del suelo, además de cobertura de comida.' },
-      { tool: TileType.Market, label: '🛒 Mercado', desc: 'Edificio 2×2. Gran cobertura de comida (radio 7) + 40 empleos.' },
+      { tool: TileType.Market, label: '🛒 Mercado', desc: 'Edificio 2×2 — más grande = más cobertura: gran alcance de comida (radio 7) + 40 empleos.' },
     ],
   },
   {

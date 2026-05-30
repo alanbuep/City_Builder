@@ -24,3 +24,6 @@ lerna-debug.log*
 
 # Locales
 *.local
+
+# Backups de Blender
+*.blend1

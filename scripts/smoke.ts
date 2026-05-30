@@ -756,6 +756,153 @@ const checks: Array<[string, boolean]> = [];
   ]);
 }
 
+// 33) Incendios: un fuego desatendido daña/destruye y se propaga; los bomberos lo apagan.
+{
+  // (a) Sin bomberos: el incendio destruye el edificio y se propaga al vecino.
+  const city = new City(12, 12);
+  const sim = new Simulation(city);
+  sim.mode = 'manual'; // sin develop(): aísla el comportamiento del fuego
+  for (let x = 0; x < 12; x++) city.setType(x, 5, TileType.Road);
+  // Una hilera de comercios pegados (combustibles, nivel 1) para ver la propagación.
+  for (let x = 2; x <= 5; x++) {
+    city.setType(x, 4, TileType.Commercial);
+    city.setLevel(x, 4, 1);
+  }
+  city.drainDirty();
+  const ignited = sim.disasters.igniteAt(2, 4);
+  checks.push(['se puede provocar un incendio en un edificio', ignited === true]);
+  checks.push(['una calle no es combustible', sim.disasters.igniteAt(0, 5) === false]);
+
+  let spread = false;
+  let destroyed = 0;
+  for (let i = 0; i < 15; i++) {
+    sim.tick();
+    if (sim.disasters.isBurning(3, 4)) spread = true; // prendió al vecino
+    destroyed += sim.disasters.drainDestroyed().length;
+  }
+  console.log('[incendio] propagó al vecino:', spread, '| destruidos:', destroyed, '| en llamas:', sim.disasters.burningCount);
+  checks.push(['el fuego se propaga a un edificio vecino', spread]);
+  checks.push(['el fuego desatendido termina destruyendo edificios', destroyed > 0]);
+
+  // (b) Con bomberos al lado: el incendio se apaga (no destruye).
+  const city2 = new City(12, 12);
+  const sim2 = new Simulation(city2);
+  sim2.mode = 'manual';
+  city2.setType(5, 5, TileType.Road);
+  city2.setType(5, 4, TileType.Commercial);
+  city2.setLevel(5, 4, 1);
+  city2.setType(6, 4, TileType.Fire); // estación de bomberos pegada
+  city2.drainDirty();
+  sim2.disasters.igniteAt(5, 4);
+  let outDestroyed = 0;
+  for (let i = 0; i < 8; i++) {
+    sim2.tick();
+    outDestroyed += sim2.disasters.drainDestroyed().length;
+  }
+  console.log('[incendio] con bomberos → en llamas:', sim2.disasters.burningCount, '| destruidos:', outDestroyed);
+  checks.push(['los bomberos apagan el incendio', sim2.disasters.burningCount === 0]);
+  checks.push(['con bomberos cerca no se destruye el edificio', outDestroyed === 0 && city2.getTile(5, 4).type === TileType.Commercial]);
+
+  // (c) Guardar/cargar conserva los incendios en curso.
+  const city3 = new City(12, 12);
+  const sim3 = new Simulation(city3);
+  sim3.mode = 'manual';
+  city3.setType(3, 3, TileType.Commercial);
+  city3.setLevel(3, 3, 1);
+  city3.drainDirty();
+  sim3.disasters.igniteAt(3, 3);
+  const sim3b = new Simulation(city3);
+  sim3b.load(sim3.serialize());
+  console.log('[incendio guardado] sigue ardiendo (3,3):', sim3b.disasters.isBurning(3, 3));
+  checks.push(['guardar/cargar conserva los incendios en curso', sim3b.disasters.isBurning(3, 3)]);
+}
+
+// 34) Replanteo de zonas: el comercio ya NO es zona (Kiosco disponible al inicio,
+// Commercial bloqueada); los locales temáticos de comida dan cobertura de comida.
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  const unlocked = sim.unlockedTypes();
+  checks.push(['el kiosco está disponible desde el inicio', unlocked.has(TileType.Kiosk)]);
+  checks.push(['la zona comercial ya NO se coloca (no está desbloqueada)', !unlocked.has(TileType.Commercial)]);
+  checks.push(['la zona industrial ya NO se coloca (no está desbloqueada)', !unlocked.has(TileType.Industrial)]);
+  checks.push(['la fábrica chica sí está disponible (industria ploppable)', unlocked.has(TileType.FactorySmall)]);
+
+  city.setType(2, 2, TileType.Residential);
+  city.setLevel(2, 2, 1);
+  city.setType(4, 2, TileType.Pizzeria);
+  city.drainDirty();
+  sim.tick();
+  console.log('[locales] comida cerca de la pizzería:', sim.inspect(3, 2).food.toFixed(2));
+  checks.push(['la pizzería da cobertura de comida cercana', sim.inspect(3, 2).food > 0]);
+}
+
+// 35) Servicios POR POBLACIÓN + CONTAMINACIÓN como área.
+{
+  // (a) Seguridad por población: sin policía, cobertura 0; con policía, sube.
+  const city = new City(14, 14);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 8; x++) {
+    city.setType(x, 1, TileType.Residential);
+    city.setLevel(x, 1, 1);
+  }
+  city.drainDirty();
+  sim.tick();
+  const secSin = sim.getStats().coverage.security;
+  city.setType(10, 1, TileType.Police); // cap 250 >> población → cobertura 100%
+  city.drainDirty();
+  sim.tick();
+  const secCon = sim.getStats().coverage.security;
+  console.log('[servicios pob] seguridad sin → con policía:', secSin.toFixed(2), '→', secCon.toFixed(2));
+  checks.push(['sin servicios la cobertura de seguridad es 0', secSin === 0]);
+  checks.push(['la policía da cobertura de seguridad por población', secCon > secSin && secCon > 0]);
+  checks.push(['la cobertura no depende de la distancia (es global)', sim.inspect(0, 1).coverage === sim.inspect(7, 1).coverage]);
+
+  // (b) Contaminación: una fábrica grande ensucia su área y frena el crecimiento.
+  const city2 = new City(16, 16);
+  const sim2 = new Simulation(city2);
+  city2.placeBuilding(6, 6, TileType.FactoryLarge, 3); // ancla en (6,6), contamina radio 4
+  // Servicios básicos + seguridad fuertes: sin contaminación, una zona podría llegar a nivel 3.
+  city2.placeBuilding(0, 0, TileType.PowerPlant, 2);
+  city2.setType(12, 0, TileType.WaterTower);
+  city2.setType(14, 0, TileType.GasPlant);
+  city2.setType(0, 12, TileType.Police);
+  city2.setType(5, 6, TileType.Residential); // pegada al ancla de la fábrica (muy contaminada)
+  city2.setLevel(5, 6, 1);
+  city2.setType(5, 13, TileType.Residential); // lejos de la fábrica (aire limpio)
+  city2.setLevel(5, 13, 1);
+  city2.drainDirty();
+  sim2.tick();
+  const polluted = sim2.inspect(5, 6);
+  const clean = sim2.inspect(5, 13);
+  console.log('[contaminación] pegada:', polluted.pollution.toFixed(2), 'maxLv', polluted.maxLevel, '| lejos:', clean.pollution.toFixed(2), 'maxLv', clean.maxLevel);
+  checks.push(['la fábrica contamina la casilla vecina', polluted.pollution > 0]);
+  checks.push(['la contaminación fuerte frena el crecimiento (maxLevel 1)', polluted.maxLevel === 1]);
+  checks.push(['lejos de la fábrica (aire limpio) sí puede crecer', clean.pollution < 0.1 && clean.maxLevel > 1]);
+}
+
+// 36) Consumo de servicios básicos: lo consumen casas + comercios + industria, así que
+// DEMOLER reduce el consumo (antes solo contaba la población → demoler no bajaba nada).
+{
+  const city = new City(12, 12);
+  const sim = new Simulation(city);
+  for (let x = 0; x < 4; x++) {
+    city.setType(x, 1, TileType.Residential);
+    city.setLevel(x, 1, 1);
+  }
+  city.placeBuilding(6, 6, TileType.FactoryLarge, 3); // 220 empleos industriales
+  city.drainDirty();
+  sim.tick();
+  const demandCon = sim.getStats().utilities.power.demand;
+  city.setType(6, 6, TileType.Empty); // demoler la fábrica
+  city.drainDirty();
+  sim.tick();
+  const demandSin = sim.getStats().utilities.power.demand;
+  console.log('[consumo] con fábrica → sin fábrica:', demandCon, '→', demandSin);
+  checks.push(['demoler una fábrica reduce el consumo de servicios básicos', demandSin < demandCon]);
+  checks.push(['la industria consume servicios básicos (demanda > población)', demandCon > sim.population]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);

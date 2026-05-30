@@ -6,6 +6,7 @@ import { Hud } from './ui/Hud';
 import { Inspector } from './ui/Inspector';
 import { Notifications } from './ui/Notifications';
 import { SaveMenu } from './ui/SaveMenu';
+import { DisasterMenu } from './ui/DisasterMenu';
 import { City } from './sim/City';
 import { Simulation } from './sim/Simulation';
 import { TILE_DEF, TileType, isZone, Tile } from './sim/types';
@@ -31,6 +32,10 @@ interface DragStep {
 
 const TICK_INTERVAL_MS = 1000; // 1 mes de juego por segundo (a velocidad 1x)
 const MAX_CATCHUP = 5; // máx. de meses a "recuperar" si la pestaña se congela
+const SPONTANEOUS_FIRE_CHANCE = 0.015; // prob. por mes de un incendio espontáneo (si están activadas)
+const BUBBLE_INTERVAL_MS = 3200; // cada cuánto rotan las burbujas de opinión de los vecinos
+const MAX_BUBBLES = 4; // cuántas burbujas se ven a la vez (para no saturar)
+const DEMOLISH_REFUND = 0.5; // al demoler se recupera este % del costo (para no quedar trabado)
 
 /**
  * El director de orquesta: crea la simulación, el render, el picking y la UI,
@@ -49,6 +54,11 @@ export class Game {
   private hud: Hud;
   private inspector: Inspector;
   private notifications: Notifications;
+  private disastersRandom = false; // ¿se desatan catástrofes al azar?
+
+  // Burbujas de opinión de los vecinos (se renuevan cada tanto).
+  private bubbles: Array<{ x: number; z: number; text: string; mood: 'good' | 'bad' }> = [];
+  private nextBubbleAt = 0;
 
   private painting = false;
   private dragPath: DragStep[] = []; // trazo del arrastre actual (permite retroceder)
@@ -91,6 +101,12 @@ export class Game {
       onClose: () => this.deselect(),
     });
     this.notifications = new Notifications();
+    new DisasterMenu(document.getElementById('disasterbar') ?? document.body, {
+      onTriggerFire: () => this.triggerFire(),
+      onToggleRandom: (enabled) => {
+        this.disastersRandom = enabled;
+      },
+    });
     new SaveMenu(document.getElementById('savebar') ?? hudContainer, {
       onSave: () => this.save(),
       onLoad: () => this.loadSaved(),
@@ -171,8 +187,15 @@ export class Game {
   /** Resalta bajo el cursor; con un edificio grande, muestra TODO su footprint. */
   private updateHover(coord: Coord | null): void {
     const tool = this.toolbar.current;
-    if (tool === 'select' || coord === null) {
-      this.cityRenderer.setHover(coord);
+    if (tool === 'select') {
+      // Selección: ilumina el edificio bajo el cursor; si no hay, marca el piso.
+      const lit = this.cityRenderer.setHighlight(coord);
+      this.cityRenderer.setHover(lit ? null : coord);
+      return;
+    }
+    this.cityRenderer.setHighlight(null); // otras herramientas: sin glow de selección
+    if (coord === null) {
+      this.cityRenderer.setHover(null);
       return;
     }
     const size = TILE_DEF[tool].size ?? 1;
@@ -227,6 +250,7 @@ export class Game {
 
   private onPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return; // botón izquierdo
+    if (this.dismissBubbleAt(e)) return; // clickear una burbuja la cierra (no construye/selecciona)
     const coord = this.picker.tileAt(e);
     const tool = this.toolbar.current;
 
@@ -313,6 +337,11 @@ export class Game {
     const prevBuilding = tile.anchor !== null;
     if (this.city.setType(coord.x, coord.z, tool)) {
       this.sim.spend(cost);
+      // Demoler reintegra parte del costo de lo que había (anti-trabarse sin dinero).
+      if (tool === TileType.Empty && prevType !== TileType.Empty) {
+        const refund = Math.round(TILE_DEF[prevType].cost * DEMOLISH_REFUND);
+        if (refund > 0) this.sim.money += refund;
+      }
       path.push({ x: coord.x, z: coord.z, prevType, prevLevel, prevBuilding, cost });
     }
   }
@@ -349,6 +378,7 @@ export class Game {
         maxZ = Math.max(maxZ, c.z);
       }
       this.cityRenderer.setSelected({ x: minX, z: minZ, w: maxX - minX + 1, h: maxZ - minZ + 1 });
+      this.cityRenderer.setCoverage(null, 0, 0); // las calles no tienen área de influencia
       this.inspector.update(this.sim.inspect(this.selected.x, this.selected.z), this.sim.money, {
         cells: cells.length,
         cost: this.sim.roadUpgradeCost(cells),
@@ -358,13 +388,31 @@ export class Game {
 
     const region = { x: this.selected.x, z: this.selected.z, w: tile.size, h: tile.size };
     this.cityRenderer.setSelected(region);
+    // Si el edificio cubre un área (servicio/comercio/amenidad…), mostrarla.
+    const inf = this.coverageInfluence(tile.type);
+    this.cityRenderer.setCoverage(inf ? this.selected : null, inf?.radius ?? 0, inf?.color ?? 0);
     this.inspector.update(this.sim.inspect(this.selected.x, this.selected.z), this.sim.money);
+  }
+
+  /**
+   * Área cuadrada a marcar al seleccionar (null si no aplica). Ahora el ÁREA es
+   * para lo espacial: contaminación (la zona a evitar), amenidades (valor del
+   * suelo) y transporte. Los servicios (seguridad/salud/educación/comida) son por
+   * población → no tienen área (se ven en los medidores del HUD).
+   */
+  private coverageInfluence(type: TileType): { radius: number; color: number } | null {
+    const def = TILE_DEF[type];
+    if (def.pollution) return { radius: def.pollution.radius, color: 0xd32f2f }; // contaminación (rojo: no construir casas)
+    if (def.amenity) return { radius: def.amenity.radius, color: 0x00e676 }; // valor del suelo (verde intenso)
+    if (def.transit) return { radius: def.transit.radius, color: 0x00e5ff }; // transporte (turquesa intenso)
+    return null;
   }
 
   private deselect(): void {
     this.selected = null;
     this.roadSelection = [];
     this.cityRenderer.setSelected(null);
+    this.cityRenderer.setCoverage(null, 0, 0);
     this.inspector.hide();
   }
 
@@ -389,7 +437,13 @@ export class Game {
   }
 
   private demolishSelected(): void {
-    if (this.selected) this.city.setType(this.selected.x, this.selected.z, TileType.Empty);
+    if (!this.selected) return;
+    const prevType = this.city.getTile(this.selected.x, this.selected.z).type;
+    if (this.city.setType(this.selected.x, this.selected.z, TileType.Empty) && prevType !== TileType.Empty) {
+      const refund = Math.round(TILE_DEF[prevType].cost * DEMOLISH_REFUND);
+      if (refund > 0) this.sim.money += refund;
+    }
+    this.deselect();
   }
 
   // --- Guardado ---
@@ -523,6 +577,7 @@ export class Game {
       while (this.accumulator >= TICK_INTERVAL_MS) {
         this.accumulator -= TICK_INTERVAL_MS;
         this.sim.tick();
+        this.maybeSpontaneousFire(); // catástrofes al azar (si están activadas)
       }
     }
 
@@ -545,10 +600,69 @@ export class Game {
     if (this.sim.drainBuilt().length) this.notifications.toast('🏗️', '¡Obra terminada!');
 
     this.cityRenderer.setMarkers(this.sim.getMarkers()); // nubes: obras + sugerencias de mejora
+    this.cityRenderer.setFires(this.sim.disasters.burningCells()); // fuego sobre las casillas en llamas
+    const burned = this.sim.disasters.drainDestroyed();
+    if (burned.length) this.notifications.toast('🔥', `¡${burned.length} edificio(s) se quemaron!`);
+
+    // Burbujas de opinión: se renuevan cada tanto (no en pausa) y se reposicionan cada frame.
+    if (!this.paused && now >= this.nextBubbleAt) {
+      this.refreshBubbles();
+      this.nextBubbleAt = now + BUBBLE_INTERVAL_MS;
+    }
+    this.cityRenderer.setBubbles(this.bubbles);
     this.cityRenderer.animate(now); // pulso del resaltado de selección
     this.hud.update(this.sim.getStats());
     this.hud.setTech(this.sim.getTechStatus());
     this.notifications.update(this.sim.getAlerts());
     this.scene.render();
   };
+
+  // --- Catástrofes ---
+
+  /**
+   * Mantiene las burbujas de opinión: poda las que ya no corresponden (casa
+   * demolida) y, si hay lugar, agrega nuevas casas al azar. Las burbujas NO se
+   * van solas: quedan hasta que el jugador las cierra clickeándolas.
+   */
+  private refreshBubbles(): void {
+    // Poda: quitar burbujas cuya casa ya no es residencial habitada.
+    this.bubbles = this.bubbles.filter((b) => {
+      const t = this.city.getTile(b.x, b.z);
+      return t.type === TileType.Residential && t.level > 0;
+    });
+    if (this.bubbles.length >= MAX_BUBBLES) return; // ya hay suficientes; esperan a que las cierren
+
+    const taken = new Set(this.bubbles.map((b) => `${b.x},${b.z}`));
+    const homes: Coord[] = [];
+    this.city.forEach((tile, x, z) => {
+      if (tile.type === TileType.Residential && tile.level > 0 && !taken.has(`${x},${z}`)) homes.push({ x, z });
+    });
+    while (this.bubbles.length < MAX_BUBBLES && homes.length > 0) {
+      const pick = homes.splice(Math.floor(Math.random() * homes.length), 1)[0];
+      const op = this.sim.opinionAt(pick.x, pick.z);
+      if (op) this.bubbles.push({ x: pick.x, z: pick.z, text: op.text, mood: op.mood });
+    }
+  }
+
+  /** Si el click cayó sobre una burbuja, la cierra y devuelve true (consume el click). */
+  private dismissBubbleAt(e: PointerEvent): boolean {
+    const idx = this.cityRenderer.pickBubble(this.picker.rayFrom(e));
+    if (idx < 0 || idx >= this.bubbles.length) return false;
+    this.bubbles.splice(idx, 1);
+    this.cityRenderer.setBubbles(this.bubbles);
+    return true;
+  }
+
+  /** Provoca un incendio en un edificio al azar (botón / prueba). */
+  private triggerFire(): void {
+    const cell = this.sim.disasters.igniteRandom(Math.random);
+    if (cell) this.notifications.toast('🔥', '¡Se desató un incendio!');
+    else this.notifications.toast('🤷', 'No hay edificios para incendiar.');
+  }
+
+  /** Con las catástrofes al azar activadas, de vez en cuando se desata un incendio. */
+  private maybeSpontaneousFire(): void {
+    if (!this.disastersRandom) return;
+    if (Math.random() < SPONTANEOUS_FIRE_CHANCE) this.sim.disasters.igniteRandom(Math.random);
+  }
 }

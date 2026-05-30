@@ -167,6 +167,13 @@
       /* --- Botonera de guardado (abajo a la derecha) --- */
       #savebar { position: fixed; bottom: 12px; right: 12px; z-index: 12; }
 
+      /* --- Menú de catástrofes (borde izquierdo, centrado: no pisa los menús de la derecha) --- */
+      #disasterbar { position: fixed; left: 12px; top: 50%; transform: translateY(-50%); z-index: 12; }
+      .disaster-menu { display: flex; flex-direction: column; gap: 6px; }
+      .disaster-head { font-size: 12px; opacity: 0.85; }
+      .disaster-row { display: flex; gap: 6px; }
+      .disaster-row .ctrl { font-size: 12px; padding: 5px 9px; }
+
       /* --- Ayuda de controles (abajo a la izquierda) --- */
       #hint {
         position: fixed; bottom: 12px; left: 12px; z-index: 10;
@@ -180,6 +187,7 @@
     <div id="toolbar"></div>
     <div id="hud"></div>
     <div id="inspector"></div>
+    <div id="disasterbar"></div>
     <div id="savebar"></div>
     <div id="hint">
       🖱️ Click izq: construir / seleccionar &nbsp;·&nbsp; Click der: rotar &nbsp;·&nbsp; Rueda: zoom &nbsp;·&nbsp; Click medio: mover

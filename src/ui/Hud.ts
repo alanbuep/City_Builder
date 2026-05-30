@@ -10,9 +10,9 @@ const RCI_INFO =
   'Barra hacia arriba (en color) = se quiere más de ese tipo (construilo). Hacia abajo (rojo) = sobra. ' +
   'Es tu guía de qué construir.';
 const UTIL_INFO =
-  'Servicios básicos: lo que la ciudad PRODUCE vs lo que CONSUME (su población). ' +
-  'En rojo = falta, construí otra planta. La energía hace falta para que las zonas pasen de nivel 1; ' +
-  'agua y gas para que lleguen al nivel máximo.';
+  'Servicios básicos: lo que la ciudad PRODUCE vs lo que CONSUME. Consumen las casas, los comercios ' +
+  'y la industria — si demolís edificios, el consumo BAJA. En rojo = falta, construí otra planta (o demolé). ' +
+  'La energía hace falta para que las zonas pasen de nivel 1; agua y gas para que lleguen al nivel máximo.';
 const TECH_INFO =
   'Tecnología: tu ciudad desbloquea edificios nuevos al alcanzar hitos de población, ' +
   'empleo industrial o tesoro. La barra muestra cuánto te falta para el próximo desbloqueo.';
@@ -44,6 +44,10 @@ export class Hud {
   private powerEl!: HTMLElement;
   private waterEl!: HTMLElement;
   private gasEl!: HTMLElement;
+  private covSecEl!: HTMLElement;
+  private covHealthEl!: HTMLElement;
+  private covEduEl!: HTMLElement;
+  private covFoodEl!: HTMLElement;
   private matEls!: Record<Material, HTMLElement>;
   private matCapEl!: HTMLElement;
   private techCountEl!: HTMLElement;
@@ -64,6 +68,7 @@ export class Hud {
     this.buildStats(container);
     this.buildRci(container);
     this.buildUtilities(container);
+    this.buildCoverage(container);
     this.buildMaterials(container);
     this.buildTech(container);
     this.buildMode(container);
@@ -124,6 +129,29 @@ export class Hud {
     this.powerEl = panel.querySelector('#util-power')!;
     this.waterEl = panel.querySelector('#util-water')!;
     this.gasEl = panel.querySelector('#util-gas')!;
+  }
+
+  private buildCoverage(container: HTMLElement): void {
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <div class="panel-head"><span style="opacity:0.85">Servicios (por población)</span></div>
+      <div class="util-row"><span>🛡️ Seguridad</span><span class="util-val" id="cov-sec">—</span></div>
+      <div class="util-row"><span>🏥 Salud</span><span class="util-val" id="cov-health">—</span></div>
+      <div class="util-row"><span>🎓 Educación</span><span class="util-val" id="cov-edu">—</span></div>
+      <div class="util-row"><span>🍽️ Comida</span><span class="util-val" id="cov-food">—</span></div>
+    `;
+    container.appendChild(panel);
+    this.addInfo(
+      panel.querySelector('.panel-head')!,
+      'Servicios por población: cada categoría suma la capacidad de sus edificios y la compara con ' +
+        'los habitantes. 100% = alcanza para toda la ciudad. La seguridad habilita que las zonas suban de nivel; ' +
+        'salud, educación y comida aceleran el crecimiento. Construí más a medida que sube la población.',
+    );
+    this.covSecEl = panel.querySelector('#cov-sec')!;
+    this.covHealthEl = panel.querySelector('#cov-health')!;
+    this.covEduEl = panel.querySelector('#cov-edu')!;
+    this.covFoodEl = panel.querySelector('#cov-food')!;
   }
 
   private buildMaterials(container: HTMLElement): void {
@@ -259,6 +287,11 @@ export class Hud {
     this.setUtility(this.waterEl, stats.utilities.water);
     this.setUtility(this.gasEl, stats.utilities.gas);
 
+    this.setCoverage(this.covSecEl, stats.coverage.security);
+    this.setCoverage(this.covHealthEl, stats.coverage.health);
+    this.setCoverage(this.covEduEl, stats.coverage.education);
+    this.setCoverage(this.covFoodEl, stats.coverage.food);
+
     for (const m of MATERIALS) {
       const total = Math.round(stats.materials.totals[m]);
       const p = Math.round(stats.materials.produced[m]);
@@ -298,6 +331,13 @@ export class Hud {
     el.textContent = `${u.supply} / ${u.demand}`;
     const ok = u.supply >= Math.max(1, u.demand);
     el.style.color = ok ? '#7CFC9A' : '#ff6b6b';
+  }
+
+  /** Muestra el % de cobertura por población, en verde si llega al 100%. */
+  private setCoverage(el: HTMLElement, ratio: number): void {
+    const pct = Math.round(ratio * 100);
+    el.textContent = `${pct}%`;
+    el.style.color = pct >= 100 ? '#7CFC9A' : pct >= 50 ? '#ffd54f' : '#ff6b6b';
   }
 
   private setBar(fill: HTMLElement, demand: number, color: string): void {

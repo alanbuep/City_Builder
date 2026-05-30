@@ -65,9 +65,14 @@ const NAME: Record<TileType, string> = {
   [TileType.Hardware]: 'Ferretería 🔧',
   [TileType.ExportTerminal]: 'Terminal de exportación 🚢',
   [TileType.Cafe]: 'Café ☕',
-  [TileType.Diner]: 'Casa de comidas 🍔',
+  [TileType.Diner]: 'Casa de comidas 🍴',
   [TileType.Restaurant]: 'Restaurante 🍽️',
   [TileType.Market]: 'Mercado 🛒',
+  [TileType.Pizzeria]: 'Pizzería 🍕',
+  [TileType.Burger]: 'Hamburguesería 🍔',
+  [TileType.HotDog]: 'Panchería 🌭',
+  [TileType.IceCream]: 'Heladería 🍦',
+  [TileType.Bakery]: 'Panadería 🥖',
   [TileType.Kiosk]: 'Kiosco 🏪',
   [TileType.Boutique]: 'Boutique 👗',
   [TileType.Pharmacy]: 'Farmacia 💊',
@@ -217,37 +222,45 @@ export class Inspector {
       this.exMinusBtn.style.display = '';
       this.exPlusBtn.style.display = '';
     } else if (def.service || def.education || def.health || def.food || def.transit) {
+      const isTransit = !!def.transit && !def.service && !def.education && !def.health && !def.food;
       const label = def.education
         ? 'cobertura educativa 🎓'
         : def.health
           ? 'cobertura de salud 🏥'
           : def.food
             ? 'comida 🍽️'
-            : def.transit
-              ? 'transporte público 🚌'
-              : 'cobertura de servicios 🛡️';
+            : def.service
+              ? 'seguridad 🛡️'
+              : 'transporte público 🚌';
       lines.push(`Brinda ${label}.`);
       const over = info.serviceServed > info.serviceCapacity;
       const col = over ? '#ff6b6b' : '#7CFC9A';
-      lines.push(`Atiende: <b style="color:${col}">${info.serviceServed} / ${info.serviceCapacity}</b> hab.`);
+      if (isTransit) {
+        lines.push(`Atiende cerca: <b style="color:${col}">${info.serviceServed} / ${info.serviceCapacity}</b> hab.`);
+      } else {
+        // Servicios por población: capacidad de TODA la categoría vs habitantes de la ciudad.
+        lines.push(`Ciudad: <b style="color:${col}">${info.serviceServed} / ${info.serviceCapacity}</b> hab. atendidos`);
+      }
       if (def.shopJobs) lines.push(`Empleos comerciales: ${def.shopJobs}`);
       lines.push(
-        over
-          ? '<i style="opacity:.8">⚠️ Saturada: construí otra cerca</i>'
-          : def.transit
-            ? 'Descongestiona las calles de las zonas cercanas. 🚌'
-            : def.service
-              ? 'Las zonas cercanas pueden crecer más alto.'
-              : 'Las zonas cercanas crecen más rápido. ✨',
+        isTransit
+          ? over
+            ? '<i style="opacity:.8">⚠️ Saturada: poné otra cerca</i>'
+            : 'Descongestiona las calles cercanas. 🚌'
+          : over
+            ? '<i style="opacity:.8">⚠️ No alcanza para la población: construí más</i>'
+            : '<i style="opacity:.8">Suma a la cobertura de toda la ciudad (mirá el HUD).</i>',
       );
     } else if (def.produces) {
       const KIND: Record<string, string> = { power: 'energía ⚡', water: 'agua 💧', gas: 'gas 🔥' };
       lines.push(`Produce <b>${def.produces.amount}</b> de ${KIND[def.produces.kind]} para toda la ciudad.`);
       lines.push('Las zonas la necesitan para crecer a niveles altos.');
+      if (def.pollution) lines.push(`<i style="opacity:.85; color:#ff8a80">🏭 Contamina (radio ${def.pollution.radius}): alejá las viviendas.</i>`);
     } else if (def.jobs) {
       lines.push('Industria (empleos industriales). 🏭');
       lines.push(`Empleos: ${def.jobs}`);
       if (def.amenity) lines.push('Empleo limpio: también sube el valor del suelo cercano. ✨');
+      if (def.pollution) lines.push(`<i style="opacity:.85; color:#ff8a80">🏭 Contamina (radio ${def.pollution.radius}): frena el crecimiento y molesta a los vecinos. Alejá las casas.</i>`);
     } else if (def.shopJobs) {
       lines.push('Negocio especializado (empleos comerciales). 🛍️');
       lines.push(`Empleos: ${def.shopJobs}`);
@@ -277,9 +290,14 @@ export class Inspector {
         if (faltan.length) lines.push(`<i style="opacity:.8">Para crecer más: ${faltan.join(', ')}</i>`);
       }
       if (info.value > 0.001) lines.push(`Valor del suelo: +${info.value.toFixed(2)}`);
+      if (info.pollution > 0.01) {
+        const col = info.pollution >= 0.6 ? '#ff6b6b' : '#ffb74d';
+        lines.push(`<span style="color:${col}">🏭 Contaminación: ${Math.round(info.pollution * 100)}%${info.pollution >= 0.6 ? ' (frena el crecimiento)' : ''}</span>`);
+      }
       if (info.type === TileType.Residential) {
         const pct = (v: number) => `${Math.round(Math.min(1, v) * 100)}%`;
-        lines.push(`🎓 ${pct(info.education)} · 🏥 ${pct(info.health)} · 🍽️ ${pct(info.food)} · 🚌 ${pct(info.transit)}`);
+        lines.push('<i style="opacity:.7; font-size:11px">Cobertura de la ciudad:</i>');
+        lines.push(`🛡️ ${pct(info.coverage)} · 🎓 ${pct(info.education)} · 🏥 ${pct(info.health)} · 🍽️ ${pct(info.food)} · 🚌 ${pct(info.transit)}`);
       }
     }
     if (def.build) {
