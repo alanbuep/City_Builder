@@ -51,6 +51,62 @@ church, library, airport`.
 
 ## NUEVOS — por prioridad
 
+### 0a) CALLES por nivel (calle → avenida → autopista) — MUY pedido ✅ HECHO (10/10)
+Hoy las 3 jerarquías usan el MISMO modelo y solo cambia un poco la altura/color, así
+que al mejorar una calle "se ve igual". Quiero un modelo distinto por nivel. El motor
+ya está cableado: para una pieza base `X` y un nivel `L` (1 = avenida, 2 = autopista)
+busca el archivo **`X_L`**; si no existe, usa la pieza base (calle). O sea, alcanza
+con dibujar los que quieras y aparecen solos.
+
+Por cada pieza base (`road_straight`, `road_corner`, `road_tee`, `road_cross`,
+`road_end`) — misma orientación/convención que la base:
+
+| archivo | nivel | notas |
+|---|---|---|
+| `road_straight_1`, `road_corner_1`, `road_tee_1`, `road_cross_1`, `road_end_1` | Avenida | 2 carriles c/lado, líneas centrales, cordón. Un poco más ancha/alta que la calle. |
+| `road_straight_2`, `road_corner_2`, `road_tee_2`, `road_cross_2`, `road_end_2` | Autopista | Calzada amplia, separador central, guardarraíl; estética de vía rápida. |
+
+> Mínimo viable para que se note: al menos `road_straight_1/_2` y `road_cross_1/_2`.
+> Las esquinas/tees pueden venir después (caen al modelo base mientras tanto).
+
+### 0b) ESCOMBROS / RUINAS de catástrofe — el `building_burnt` actual queda NEGRO ✅ HECHO (building_burnt rehecho + _2 + _3)
+Cuando una catástrofe (incendio/meteorito/tornado/huracán) golpea un edificio, queda
+como **ruina reparable** y se muestra `building_burnt`. El actual se ve casi negro y
+feo. Quiero ruinas que se lean como **escombros**: muros derrumbados, vigas, polvo,
+gris-marrón claro con tiznado (NO un bloque negro). El motor escala el de 1×1 al
+footprint, pero para que no se estire quiero variantes por tamaño:
+
+| archivo | tamaño | notas |
+|---|---|---|
+| `building_burnt` | 1×1 | **Rehacer**: escombros low-poly (cascotes, una pared a medio caer, vigas), gris-marrón claro algo tiznado. Reparable, no "quemado total negro". |
+| `building_burnt_2` | 2×2 | Ruina para edificios 2×2 (el motor usa `building_burnt_N` si existe; si no, escala el 1×1). |
+| `building_burnt_3` | 3×3 | Ruina para edificios 3×3. |
+| `rubble` (ya existe) | 1×1 | Pila de escombros sueltos. *Opcional:* si querés, lo uso como decoración/cascotes extra alrededor de la ruina. |
+
+### 0c) Energías renovables (YA están en el juego con cubo de respaldo) ✅ HECHO (solar, wind, hydro)
+Funcionan ya (energía limpia, sin humo); les falta el modelo lindo. El motor las
+carga en silencio: apenas existan los `.glb`, aparecen.
+| archivo | tamaño | notas |
+|---|---|---|
+| `solar` | 2×2 | Campo de paneles solares (bajo, azulado). |
+| `wind` | 1×1 | Aerogenerador alto (torre blanca + aspas). |
+| `hydro` | 2×2 | Represa hidroeléctrica (muro de cemento; va junto al agua). |
+
+### 0d) Aire y espectáculo (YA funcionan con geometría procedural)
+Aviones, dirigible, circuito y autos de carrera **ya andan** con formas low-poly
+hechas en código. Estos modelos son OPCIONALES y los reemplazan por algo lindo
+apenas existan. Convención: "frente" hacia −Z.
+| archivo | estado | notas |
+|---|---|---|
+| `race_track` | ✅ HECHO | Circuito 3×3 (atracción). Carga en silencio: aparece apenas lo dibujes. |
+| `race_car` | procedural | Auto de carrera (hoy es un autito de cajas; da vueltas en los días de evento). |
+| `plane` | procedural | Avión (hoy fuselaje+alas de cajas; despega del aeropuerto y cruza el cielo). |
+| `blimp` | procedural | Dirigible (hoy elipsoide+góndola; ronda lento la ciudad). |
+| `balloon` | ✅ HECHO + cableado | Globo aerostático: aparece cuando la ciudad tiene gente (turismo), deriva lento y sube/baja. |
+
+> Ya implementado: el aeropuerto emite aviones; el circuito hace "días de evento"
+> con autos dando vueltas y renta extra; el dirigible es ambiente permanente.
+
 ### 1) Puentes y cruces de agua (desbloquea construir cruzando ríos)
 | archivo | tamaño | notas |
 |---|---|---|
@@ -68,6 +124,30 @@ Modelos chicos, varios por casilla está bien (el motor puede repartirlos).
 | `bush` | <1×1 | Arbusto/matorral. |
 | `beach_sand` | 1×1 | Casilla de arena (borde de agua → playa). |
 | `flowers` | <1×1 | Cantero decorativo. |
+
+### 2b) TERRENO: montaña y agua (lo más feo ahora — a modelar) 🏔️🌊 ✅ HECHO (mountain, sea)
+Hoy el terreno se dibuja con CUBOS de color: el agua es un cubo azul plano (feo,
+tipo Minecraft) y la montaña un cubo marrón (los "bloques de la esquina" que viste
+son eso: montañas). La **playa ya usa `beach_sand`** ✅. Faltan estos dos, que el
+motor cargará en silencio apenas existan (convención: ocupan 1×1, base en y=0):
+
+| archivo | tamaño | notas |
+|---|---|---|
+| `mountain` | 1×1 | **Montaña/cerro** low-poly con **zonas de NIEVE en el pico** (blanco arriba, roca gris-marrón abajo, algo de verde en la base). El motor la escala ×1.5, la rota y la repite **de punta a punta** para formar la cordillera, con picos de distinta altura — así que con 1 modelo lindo alcanza. Que se vea como relieve, NO un cubo. |
+| `sea` | 1×1 | **Superficie de mar/agua**: plano casi a ras del suelo (altura ~0.06), azul lindo, con leve ondulado/biselado en los bordes para que no se vea como cubos pegados. (Lo uso para el mar Y los ríos.) Si querés, una versión con espuma en el borde costero queda genial pero es opcional. |
+
+> Cuando estén, los conecto igual que `beach_sand` (mapa `TERRAIN_MODEL` en
+> `CityRenderer`): `mountain → mountain.glb`, `water → sea.glb`.
+
+### 2c) Barcos (tráfico de agua — próximo) 🚢⛴️
+Cuando esté el agua linda, agregamos barcos que navegan el mar/ríos (ambiente +
+los de contenedores ligados al puerto). Animación mía (como aviones/autos); los
+modelos van a falta. Convención: "frente" hacia +Z (como aviones/autos).
+| archivo | notas |
+|---|---|
+| `boat` | Barquito/lancha de paseo (ambiente, navega el mar). |
+| `cargo_ship` | Barco de contenedores (sale del puerto/terminal, navega cargado). |
+| `sailboat` | Velero (opcional, ambiente costero). |
 
 ### 3) Estilos de residencia (zonas con onda distinta)
 Cada estilo es una escalera de niveles (como `residential_1..5`). Empezamos con 3
@@ -124,10 +204,10 @@ tornado, huracán, fuego, humo de incendio → los hago con shaders/partículas.
 Sí necesito estos modelos:
 | archivo | tamaño | notas |
 |---|---|---|
-| `meteor` | — | Roca/meteorito incandescente que cae (con estela la hago yo). |
-| `crater` | 1×1 | Cráter en el suelo (estado del terreno tras el impacto). |
-| `rubble` | 1×1 | Escombros/edificio derrumbado (tras una catástrofe). |
-| `building_burnt` | 1×1 | Edificio quemado/ennegrecido (mientras se reconstruye). |
+| `meteor` | — | Roca/meteorito incandescente que cae (con estela la hago yo). ✅ HECHO, ya se usa. |
+| `crater` | 1×1 | Cráter en el suelo. (Por ahora NO se usa: el edificio dañado queda como ruina reparable, no como cráter.) |
+| `rubble` | 1×1 | Escombros sueltos. (Por ahora NO se usa, ver `building_burnt`.) |
+| `building_burnt` | 1×1 | **Ruina genérica**: se muestra sobre CUALQUIER edificio dañado por una catástrofe (incendio/meteorito/tornado/huracán) hasta que se repara. ✅ Ya se usa, escalado al footprint. *Mejora opcional:* variantes `building_burnt_2` (2×2) y `building_burnt_3` (3×3) para que las ruinas grandes no se vean estiradas. |
 
 ### 7) Emergencias (respuesta a catástrofes)
 | archivo | tamaño | notas |

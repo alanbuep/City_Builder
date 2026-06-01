@@ -57,8 +57,17 @@ Se movió al borde izquierdo para no taparse con el HUD/guardado de la derecha.
 
 ## Fase A — Profundidad de simulación
 
-### Hito 26 — Catástrofes 🌪️🔥☄️
+### Hito 26 — Catástrofes 🌪️🔥☄️ ✅ (hecho)
 El feature "estrella" pedido. Lo hago incremental para no romper balance.
+
+> **Estado:** Implementados los 4 tipos (incendio, meteorito, tornado, huracán) en
+> `sim/Disasters.ts` (deterministas, `rand` inyectado). En vez de borrar, los
+> edificios quedan **dañados** (ruina `building_burnt`, no funcionan) y se
+> **REPARAN** pagando (`sim.repair` + botón en el Inspector) o se demuelen. VFX en
+> `render/DisasterFx.ts` (meteorito que cae + onda, trompa de tornado, remolino de
+> huracán) y **fuego de partículas** real en `render/FireSystem.ts` (reemplazó al
+> sprite 🔥). Menú con botones por tipo + azar. Pendiente opcional: refugio
+> antidesastres, sacudón de cámara, inundación del huracán.
 
 - **Motor de desastres** (`sim/Disasters.ts`, engine-agnostic): un desastre tiene
   tipo, epicentro, radio, duración y daño/tick. Sin `Math.random` en sim → el
@@ -82,8 +91,16 @@ El feature "estrella" pedido. Lo hago incremental para no romper balance.
 - **Reconstrucción**: las obras ya existen → un edificio dañado se reconstruye con
   una obra (gratis o con descuento). Esto cierra el loop.
 
-### Hito 27 — Ciencia e investigación 🔬
+### Hito 27 — Ciencia e investigación 🔬 ✅ (primera versión hecha)
 Segundo eje de progreso, **paralelo** a la tecnología-por-población actual.
+
+> **Estado:** 4 edificios nuevos (`ResearchLab`, `Observatory`, `SciencePark`,
+> `SpaceCenter`) con campo `research` (puntos/mes, requieren energía). La ciencia se
+> acumula (`sim.science`) y es una nueva **métrica de tecnología** (`science`): hitos
+> "Parque científico" (ciencia ≥ 300) y "Programa espacial → Centro Espacial"
+> (≥ 1500). Categoría 🔬 Ciencia en la toolbar, panel de ciencia en el HUD.
+> Pendiente (mejora futura): árbol de investigación con NODOS que dan mejoras (no
+> solo edificios) — energía limpia, antisísmica, logística — y lanzamiento de cohete.
 
 - **Puntos de investigación (PI)**: edificios científicos generan PI/mes
   (`research_lab`, `science_park`, `observatory`, `space_center`). Universidad
@@ -98,8 +115,17 @@ Segundo eje de progreso, **paralelo** a la tecnología-por-población actual.
   requisito para desbloquear al héroe).
 - **UI**: pantalla de árbol científico (nodos, costos en PI, dependencias).
 
-### Hito 28 — El Héroe 🦸 (estilo Superman)
+### Hito 28 — El Héroe 🦸 (estilo Superman) ✅ (primera versión hecha)
 "Momento épico" desbloqueable.
+
+> **Estado:** 3 edificios (`HeroHQ` 2×2, `HeroBeacon`, `HeroStatue`) en categoría
+> 🦸 Héroe, desbloqueados por el hito "El Héroe" (ciencia ≥ 3000). Mientras haya un
+> **cuartel sano** (`def.hero`), `sim.hasHero` es true y el héroe **apaga los
+> incendios de toda la ciudad** (DisasterSystem.heroActive → supresión global). Si una
+> catástrofe daña el cuartel, el héroe desaparece hasta repararlo. Render en
+> `render/HeroFx.ts`: `hero_figure` vuela rondando la ciudad y **acude al incendio**
+> más cercano. Pendiente (mejora futura): que el beacon sea requisito/invocación,
+> cinemática de aparición, y que mitigue también meteorito/tornado.
 
 - **Desbloqueo**: condición fuerte — p. ej. población alta + investigación avanzada
   + construir `hero_hq`. Aparece con una cinemática simple (vuelo + música/toast).
@@ -114,8 +140,18 @@ Segundo eje de progreso, **paralelo** a la tecnología-por-población actual.
 
 ## Fase B — Variedad y personalización
 
-### Hito 29 — Estilos de residencia / distritos 🏘️
+### Hito 29 — Estilos de residencia / distritos 🏘️ ✅ (hecho)
 Que la ciudad no sea toda igual (pedido del usuario).
+
+> **Estado:** El residencial tiene un campo `style` (`default/eco/luxury/suburb`),
+> NO tipos nuevos. Cada estilo: su escalera de modelos (`res_eco/luxury/suburb_1..3`,
+> `residential_1..5` para el estándar) + sesgo en `RES_STYLE` (densidad `capMul`,
+> tope `maxLevel`, sensibilidad a la contaminación `pollutionMul`, valor del suelo
+> que irradia `landValue`). Estándar = único que llega a rascacielos (5); suburbio
+> tope 2 (baja densidad); eco tope 3 + casi inmune a la contaminación; lujo tope 3 +
+> alta densidad + irradia mucho valor. En la toolbar la categoría 🏠 Residencial
+> tiene las 4 variantes; **arrastrar re-estiliza** barrios existentes gratis (pintar
+> distritos). El inspector muestra el estilo. Se guarda/carga.
 
 - **Estilos**: el residencial puede tener estilo `suburb` / `eco` / `luxury`
   (cada uno con su escalera `res_*_1..n`). El estilo es un dato extra del tile o
@@ -127,7 +163,30 @@ Que la ciudad no sea toda igual (pedido del usuario).
   densidad.
 - **UI**: selector de estilo en la herramienta de zona residencial.
 
-### Hito 30 — Paisaje y decoración 🌲
+### Hito 30 — Paisaje y decoración 🌲 ⏳ (en progreso)
+
+> **Hecho:** terreno natural rico en `generateTerrain` — **mar** en un borde con
+> costa ondulada, **playas** (nuevo `TerrainKind 'beach'`, arena edificable), **río**
+> que desemboca y **montañas** en la esquina lejana del mar. Edificios que exigen
+> agua (`needsWater`): **represa hidroeléctrica** y **puerto/terminal de exportación**
+> (`City.isNextToWater` + chequeo en `canPlaceSite`). **Energías renovables** (bonus):
+> `SolarPlant`/`WindTurbine`/`HydroPlant`, energía limpia SIN contaminación, hito
+> "♻️ Energías renovables" (pob ≥ 110).
+> **También hecho:** herramienta de **paisaje** (🌳 árboles/🌿 arbustos/🌸 flores/🪨 rocas
+> — ploppables instantáneos, sin calle; árbol elige palmera en la playa). **Tráfico
+> aéreo** (`render/AirFx.ts`): aviones que despegan de los aeropuertos + dirigible de
+> ambiente (procedurales). **Circuito de carreras** 🏁 (atracción 3×3) con **días de
+> evento**: cada ~10 meses hay un fin de semana de carreras (renta extra + autos
+> dando vueltas, `render/RaceFx.ts`; toast al arrancar).
+> **Puentes ✅:** una calle sobre agua se vuelve un **puente** (`bridge_straight`,
+> orientado según cruce horizontal/vertical); `terrainAllows` deja poner calles sobre
+> agua (no montaña) y el resto solo en tierra/playa. Funcionan como calle normal
+> (acceso, tráfico). Pendiente fino: rampas (`bridge_ramp`) en las orillas y puentes
+> en curva/cruce (hoy se fuerzan rectos).
+> **Pendiente:** modelos lindos de avión/dirigible/auto/circuito/globo (`MODELS.md`
+> §0d) y cablear el **globo aerostático**.
+
+#### Hito 30 (resto) — Paisaje y decoración 🌲
 - **Herramienta de plantado**: árboles/rocas/arbustos/flores (modelos de MODELS.md)
   como decoración (suben deseabilidad, no dan empleos).
 - **Más biomas/terreno**: playa (arena en bordes de agua), bosque, colinas; mejorar

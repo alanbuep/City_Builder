@@ -1,7 +1,7 @@
 import { SceneManager } from './render/SceneManager';
 import { CityRenderer } from './render/CityRenderer';
 import { Picker } from './input/Picker';
-import { Toolbar } from './ui/Toolbar';
+import { Toolbar, isPaintTool } from './ui/Toolbar';
 import { Hud } from './ui/Hud';
 import { Inspector } from './ui/Inspector';
 import { Notifications } from './ui/Notifications';
@@ -9,6 +9,7 @@ import { SaveMenu } from './ui/SaveMenu';
 import { DisasterMenu } from './ui/DisasterMenu';
 import { City } from './sim/City';
 import { Simulation } from './sim/Simulation';
+import { generateTerrain as genTerrain } from './sim/Terrain';
 import { TILE_DEF, TileType, isZone, Tile } from './sim/types';
 import { SaveData, SAVE_VERSION, saveLocal, loadLocal, exportFile, importFile } from './storage/SaveStore';
 import { GridSpec } from './grid';
@@ -43,7 +44,7 @@ const DEMOLISH_REFUND = 0.5; // al demoler se recupera este % del costo (para no
  * de tiempo fijo, independientes entre sí).
  */
 export class Game {
-  private grid: GridSpec = { width: 32, height: 32, tileSize: 1 };
+  private grid: GridSpec = { width: 48, height: 48, tileSize: 1 };
 
   private city: City;
   private sim: Simulation;
@@ -84,6 +85,7 @@ export class Game {
     this.city = new City(this.grid.width, this.grid.height);
     this.sim = new Simulation(this.city);
     this.scene = new SceneManager(canvasContainer);
+    this.scene.setPanLimit((Math.max(this.grid.width, this.grid.height) * this.grid.tileSize) / 2 + 6);
     this.cityRenderer = new CityRenderer(this.scene.scene, this.city, this.grid);
     this.picker = new Picker(this.scene.camera, this.scene.renderer.domElement, this.city, this.grid);
     this.toolbar = new Toolbar(toolbarContainer);
@@ -95,6 +97,8 @@ export class Game {
     });
     this.inspector = new Inspector(inspectorContainer, {
       onUpgrade: () => this.upgradeSelected(),
+      onRepair: () => this.repairSelected(),
+      onUnlock: () => this.unlockSelectedTerritory(),
       onDemolish: () => this.demolishSelected(),
       onStart: () => this.startSelected(),
       onExportKeep: (delta) => this.sim.setExportKeep(this.sim.exportKeep + delta),
@@ -103,6 +107,9 @@ export class Game {
     this.notifications = new Notifications();
     new DisasterMenu(document.getElementById('disasterbar') ?? document.body, {
       onTriggerFire: () => this.triggerFire(),
+      onTriggerMeteor: () => this.triggerMeteor(),
+      onTriggerTornado: () => this.triggerTornado(),
+      onTriggerHurricane: () => this.triggerHurricane(),
       onToggleRandom: (enabled) => {
         this.disastersRandom = enabled;
       },
@@ -119,6 +126,7 @@ export class Game {
     dom.addEventListener('pointermove', (e) => this.onPointerMove(e));
     dom.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     window.addEventListener('pointerup', () => {
+      if (this.painting) this.cityRenderer.refreshOcean(); // por si pintaste agua hasta un borde
       this.painting = false;
       this.dragPath = [];
       this.roadDragging = false;
@@ -141,6 +149,8 @@ export class Game {
       this.sim.mode = 'manual';
       this.hud.setMode('manual');
       this.generateTerrain();
+      this.cityRenderer.setLockedRegions(this.city.lockedRegions());
+      this.cityRenderer.refreshOcean();
     }
     setInterval(() => this.save(), AUTOSAVE_MS);
 
@@ -198,22 +208,71 @@ export class Game {
       this.cityRenderer.setHover(null);
       return;
     }
+    if (isPaintTool(tool)) {
+      this.cityRenderer.setHover(coord, 1, this.canPaintTerrain(coord) ? 'normal' : 'invalid');
+      return;
+    }
     const size = TILE_DEF[tool].size ?? 1;
     // Edificios (ploppables): verde/rojo según si se puede abrir la obra (terreno libre + calle).
     if (this.requiresRoad(tool)) {
       this.cityRenderer.setHover(coord, size, this.canPlaceSite(coord, size) ? 'valid' : 'invalid');
     } else if (tool !== TileType.Empty && this.isProtected(this.city.getTile(coord.x, coord.z))) {
       this.cityRenderer.setHover(coord, 1, 'invalid'); // pintar acá pisaría un edificio
-    } else if (tool !== TileType.Empty && !this.city.isBuildable(coord.x, coord.z)) {
-      this.cityRenderer.setHover(coord, 1, 'invalid'); // no se construye en agua ni montaña
+    } else if (tool !== TileType.Empty && !this.terrainAllows(tool, coord.x, coord.z)) {
+      this.cityRenderer.setHover(coord, 1, 'invalid'); // no se construye en agua/montaña (salvo puente)
     } else {
       this.cityRenderer.setHover(coord, size, 'normal'); // zonas, calles, demoler
     }
   }
 
-  /** ¿Este tipo necesita una calle al lado para construirse? (no las zonas ni las calles) */
+  /** ¿Este tipo necesita una calle al lado para construirse? (no las zonas, calles ni decoración) */
   private requiresRoad(type: TileType): boolean {
-    return type !== TileType.Empty && type !== TileType.Road && !isZone(type);
+    return type !== TileType.Empty && type !== TileType.Road && !isZone(type) && !TILE_DEF[type].decoration;
+  }
+
+  /**
+   * ¿El terreno admite esta herramienta? Las CALLES pueden cruzar agua (se vuelven
+   * un PUENTE) pero no montaña; el resto solo va en tierra/playa.
+   */
+  private terrainAllows(tool: TileType, x: number, z: number): boolean {
+    if (!this.city.isUnlocked(x, z)) return false; // territorio bloqueado: hay que abrirlo primero
+    if (tool === TileType.Road) return this.city.getTerrain(x, z) !== 'mountain';
+    return this.city.isBuildable(x, z);
+  }
+
+  /** ¿Se puede pintar terreno (agua/tierra) en esta casilla? (libre + desbloqueada). */
+  private canPaintTerrain(coord: Coord): boolean {
+    return (
+      this.city.inBounds(coord.x, coord.z) &&
+      this.city.isUnlocked(coord.x, coord.z) &&
+      this.city.getTile(coord.x, coord.z).type === TileType.Empty // no bajo edificios/calles
+    );
+  }
+
+  /** Pinta agua (con orillas de arena) o vuelve a tierra. Para ríos/lagos a mano. */
+  private paintTerrain(coord: Coord, kind: 'water' | 'land'): void {
+    if (!this.canPaintTerrain(coord)) return;
+    const { x, z } = coord;
+    if (kind === 'land') {
+      this.city.setTerrain(x, z, 'land');
+      return;
+    }
+    this.city.setTerrain(x, z, 'water');
+    // Orillas: la tierra libre alrededor del agua se vuelve arena.
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dz === 0) continue;
+        const nx = x + dx;
+        const nz = z + dz;
+        if (
+          this.city.inBounds(nx, nz) &&
+          this.city.getTile(nx, nz).type === TileType.Empty &&
+          this.city.getTerrain(nx, nz) === 'land'
+        ) {
+          this.city.setTerrain(nx, nz, 'beach');
+        }
+      }
+    }
   }
 
   /** ¿Hay algo que NO se debe pisar pintando (edificio, o zona ya construida)? */
@@ -241,9 +300,14 @@ export class Game {
         const cx = coord.x + dx;
         const cz = coord.z + dz;
         if (!this.city.inBounds(cx, cz)) return false;
+        if (!this.city.isUnlocked(cx, cz)) return false; // territorio bloqueado
         if (!this.city.isBuildable(cx, cz)) return false; // no en agua ni montaña
         if (this.city.getTile(cx, cz).type !== TileType.Empty) return false;
       }
+    }
+    // Represas/puertos: tienen que tocar el agua.
+    if (TILE_DEF[this.toolbar.current as TileType]?.needsWater && !this.city.isNextToWater(coord.x, coord.z, size)) {
+      return false;
     }
     return this.footprintHasRoad(coord, size); // los edificios necesitan calle
   }
@@ -276,6 +340,14 @@ export class Game {
 
     if (!coord) return;
 
+    // Pintar terreno (ríos/lagos a mano): arrastrar.
+    if (isPaintTool(tool)) {
+      this.painting = true;
+      this.dragPath = [];
+      this.paintAt(coord);
+      return;
+    }
+
     // Edificios: se abre una OBRA de un click (gratis). Se paga al darle el OK.
     if (this.requiresRoad(tool)) {
       this.placeConstructionSite(coord, tool, TILE_DEF[tool].size ?? 1);
@@ -305,6 +377,12 @@ export class Game {
     const tool = this.toolbar.current;
     if (tool === 'select') return;
 
+    // Pintar terreno (agua/tierra) a mano — no usa el trazo de obras ni cuesta dinero.
+    if (isPaintTool(tool)) {
+      this.paintTerrain(coord, tool === 'terrain_water' ? 'water' : 'land');
+      return;
+    }
+
     const path = this.dragPath;
     const last = path[path.length - 1];
     if (last && last.x === coord.x && last.z === coord.z) return; // misma casilla, nada que hacer
@@ -323,6 +401,16 @@ export class Game {
       return;
     }
 
+    // Residencial sobre residencial: solo CAMBIA el estilo del barrio (gratis), así
+    // se puede "pintar" un distrito de un estilo arrastrando sobre lo ya zonificado.
+    if (tool === TileType.Residential) {
+      const t = this.city.getTile(coord.x, coord.z);
+      if (t.type === TileType.Residential && t.style !== this.toolbar.currentResStyle) {
+        this.city.setResidentialStyle(coord.x, coord.z, this.toolbar.currentResStyle);
+        return;
+      }
+    }
+
     // Casilla nueva: colocar (si alcanza el dinero y tiene calle si hace falta).
     const cost = TILE_DEF[tool].cost;
     if (cost > 0 && this.sim.money < cost) return;
@@ -330,13 +418,15 @@ export class Game {
 
     const tile = this.city.getTile(coord.x, coord.z);
     if (tool !== TileType.Empty && this.isProtected(tile)) return; // no destruir un edificio al pintar
-    if (tool !== TileType.Empty && !this.city.isBuildable(coord.x, coord.z)) return; // no en agua ni montaña
+    if (tool !== TileType.Empty && !this.terrainAllows(tool, coord.x, coord.z)) return; // agua/montaña (calle = puente)
 
     const prevType = tile.type;
     const prevLevel = tile.level;
     const prevBuilding = tile.anchor !== null;
     if (this.city.setType(coord.x, coord.z, tool)) {
       this.sim.spend(cost);
+      // Al zonificar residencial, le aplico el estilo de barrio elegido.
+      if (tool === TileType.Residential) this.city.setResidentialStyle(coord.x, coord.z, this.toolbar.currentResStyle);
       // Demoler reintegra parte del costo de lo que había (anti-trabarse sin dinero).
       if (tool === TileType.Empty && prevType !== TileType.Empty) {
         const refund = Math.round(TILE_DEF[prevType].cost * DEMOLISH_REFUND);
@@ -426,6 +516,26 @@ export class Game {
     }
   }
 
+  /** Desbloquea la parcela de territorio seleccionada (gasta fichas 🗝️). */
+  private unlockSelectedTerritory(): void {
+    if (!this.selected) return;
+    if (this.sim.unlockTerritory(this.selected.x, this.selected.z)) {
+      this.notifications.toast('🗝️', '¡Nuevo territorio desbloqueado!');
+      this.cityRenderer.setLockedRegions(this.city.lockedRegions());
+      this.refreshSelection();
+    } else {
+      this.notifications.toast('🔒', 'Faltan fichas o no es contigua a tu ciudad.');
+    }
+  }
+
+  /** Repara el edificio dañado seleccionado (cobra el costo de reparación). */
+  private repairSelected(): void {
+    if (!this.selected) return;
+    if (this.sim.repair(this.selected.x, this.selected.z)) {
+      this.notifications.toast('🛠️', '¡Edificio reparado!');
+    }
+  }
+
   /** Da el OK a la obra seleccionada (cobra dinero + materiales y empieza a construir). */
   private startSelected(): void {
     if (this.selected) this.sim.startConstruction(this.selected.x, this.selected.z);
@@ -466,12 +576,19 @@ export class Game {
     this.city.load(data.city); // marca todo sucio → el render se re-sincroniza en el loop
     this.sim.load(data.sim);
     this.hud.setMode(this.sim.mode); // sincroniza el botón de modo con lo cargado
+    this.cityRenderer.setLockedRegions(this.city.lockedRegions());
+    this.cityRenderer.refreshOcean();
     this.deselect();
   }
 
   private loadSaved(): void {
     const data = loadLocal();
-    if (data) this.applySave(data);
+    if (data) {
+      this.applySave(data);
+      this.notifications.toast('📂', 'Partida cargada.');
+    } else {
+      this.notifications.toast('🤷', 'No hay nada guardado todavía.');
+    }
   }
 
   private newCity(): void {
@@ -482,6 +599,8 @@ export class Game {
     this.city.clear();
     this.generateTerrain();
     this.sim.reset();
+    this.cityRenderer.setLockedRegions(this.city.lockedRegions());
+    this.cityRenderer.refreshOcean();
     this.deselect();
   }
 
@@ -492,47 +611,7 @@ export class Game {
    * sobre agua/montaña; las casillas junto al agua valen más (vista al lago/río).
    */
   private generateTerrain(): void {
-    const { width, height } = this.grid;
-    const clampX = (v: number) => Math.max(0, Math.min(width - 1, v));
-
-    // Lago: una mancha circular de borde irregular, en el centro del mapa.
-    const lakeX = 5 + Math.floor(Math.random() * (width - 10));
-    const lakeZ = 5 + Math.floor(Math.random() * (height - 10));
-    const lakeR = 2.5 + Math.random() * 2.5;
-    for (let z = 0; z < height; z++) {
-      for (let x = 0; x < width; x++) {
-        if (Math.hypot(x - lakeX, z - lakeZ) + (Math.random() - 0.5) * 1.6 < lakeR) {
-          this.city.setTerrain(x, z, 'water');
-        }
-      }
-    }
-
-    // Río (50%): serpentea desde el borde superior hacia abajo, pero se corta antes
-    // de llegar al fondo para no partir el mapa en dos (no hay puentes aún).
-    if (Math.random() < 0.5) {
-      let rx = clampX(Math.floor(width * (0.2 + Math.random() * 0.6)));
-      const stop = Math.floor(height * (0.55 + Math.random() * 0.25));
-      for (let z = 0; z < stop; z++) {
-        rx = clampX(rx + Math.round((Math.random() - 0.5) * 2));
-        this.city.setTerrain(rx, z, 'water');
-        if (Math.random() < 0.4) this.city.setTerrain(clampX(rx + 1), z, 'water'); // ancho variable
-      }
-    }
-
-    // Montañas: un grupo compacto en una esquina al azar (no pisa el agua).
-    const mx = Math.random() < 0.5 ? 0 : width - 1;
-    const mz = Math.random() < 0.5 ? 0 : height - 1;
-    const mr = 2.5 + Math.random() * 2;
-    for (let z = 0; z < height; z++) {
-      for (let x = 0; x < width; x++) {
-        if (
-          Math.hypot(x - mx, z - mz) + (Math.random() - 0.5) * 1.4 < mr &&
-          this.city.getTerrain(x, z) === 'land'
-        ) {
-          this.city.setTerrain(x, z, 'mountain');
-        }
-      }
-    }
+    genTerrain(this.city); // generación movida a sim/Terrain.ts (testeable)
   }
 
   private importCity(file: File): void {
@@ -577,7 +656,7 @@ export class Game {
       while (this.accumulator >= TICK_INTERVAL_MS) {
         this.accumulator -= TICK_INTERVAL_MS;
         this.sim.tick();
-        this.maybeSpontaneousFire(); // catástrofes al azar (si están activadas)
+        this.maybeSpontaneousDisaster(); // catástrofes al azar (si están activadas)
       }
     }
 
@@ -600,7 +679,27 @@ export class Game {
     if (this.sim.drainBuilt().length) this.notifications.toast('🏗️', '¡Obra terminada!');
 
     this.cityRenderer.setMarkers(this.sim.getMarkers()); // nubes: obras + sugerencias de mejora
-    this.cityRenderer.setFires(this.sim.disasters.burningCells()); // fuego sobre las casillas en llamas
+    const burning = this.sim.disasters.burningCells();
+    this.cityRenderer.setFires(burning); // fuego sobre las casillas en llamas
+    this.cityRenderer.setHero(this.sim.hasHero, burning[0] ?? null); // el héroe acude al incendio
+
+    // Atracciones y aeronaves: cada cosa sale de su edificio.
+    const tracks: Array<{ x: number; z: number; size: number }> = [];
+    const airports: Array<{ x: number; z: number; size: number }> = [];
+    const docks: Array<{ x: number; z: number; size: number }> = [];
+    const ports: Array<{ x: number; z: number; size: number }> = [];
+    this.city.forEach((tile, x, z) => {
+      if (this.city.isSubCell(x, z) || tile.damaged) return;
+      const def = TILE_DEF[tile.type];
+      if (def.raceTrack) tracks.push({ x, z, size: tile.size });
+      if (tile.type === TileType.Airport) airports.push({ x, z, size: tile.size });
+      if (def.launchesBlimp) docks.push({ x, z, size: tile.size });
+      if (def.launchesBalloons) ports.push({ x, z, size: tile.size });
+    });
+    this.cityRenderer.setRace(this.sim.raceActive, tracks);
+    this.cityRenderer.setAirSources(airports, docks, ports);
+    if (this.sim.drainRaceStart()) this.notifications.toast('🏁', '¡Fin de semana de carreras! 🏎️');
+
     const burned = this.sim.disasters.drainDestroyed();
     if (burned.length) this.notifications.toast('🔥', `¡${burned.length} edificio(s) se quemaron!`);
 
@@ -655,14 +754,52 @@ export class Game {
 
   /** Provoca un incendio en un edificio al azar (botón / prueba). */
   private triggerFire(): void {
+    this.sim.recordDisaster();
     const cell = this.sim.disasters.igniteRandom(Math.random);
     if (cell) this.notifications.toast('🔥', '¡Se desató un incendio!');
     else this.notifications.toast('🤷', 'No hay edificios para incendiar.');
   }
 
-  /** Con las catástrofes al azar activadas, de vez en cuando se desata un incendio. */
-  private maybeSpontaneousFire(): void {
+  /** Lanza un meteorito: cae sobre un objetivo y, al impactar, arrasa e incendia. */
+  private triggerMeteor(): void {
+    this.sim.recordDisaster();
+    const target = this.sim.disasters.pickMeteorTarget(Math.random);
+    this.notifications.toast('🌠', '¡Meteorito en camino!');
+    this.cityRenderer.playMeteor(target.x, target.z, () => {
+      const r = this.sim.disasters.strikeMeteor(target.x, target.z);
+      this.notifications.toast('💥', `¡Impacto! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
+    });
+  }
+
+  /** Desata un tornado que cruza el mapa serpenteando. */
+  private triggerTornado(): void {
+    this.sim.recordDisaster();
+    const r = this.sim.disasters.spawnTornado(Math.random);
+    this.cityRenderer.playTornado(r.path ?? []);
+    this.notifications.toast('🌪️', `¡Tornado! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
+  }
+
+  /** Desata un huracán que castiga toda la ciudad. */
+  private triggerHurricane(): void {
+    this.sim.recordDisaster();
+    const r = this.sim.disasters.spawnHurricane(Math.random);
+    this.cityRenderer.playHurricane();
+    this.notifications.toast('🌀', `¡Huracán! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
+  }
+
+  /**
+   * Con las catástrofes al azar activadas, de vez en cuando se desata una: casi
+   * siempre un incendio (la más común), y rara vez algo mayor.
+   */
+  private maybeSpontaneousDisaster(): void {
     if (!this.disastersRandom) return;
-    if (Math.random() < SPONTANEOUS_FIRE_CHANCE) this.sim.disasters.igniteRandom(Math.random);
+    if (Math.random() >= SPONTANEOUS_FIRE_CHANCE) return;
+    const roll = Math.random();
+    if (roll < 0.7) {
+      this.sim.recordDisaster();
+      this.sim.disasters.igniteRandom(Math.random);
+    } else if (roll < 0.85) this.triggerMeteor();
+    else if (roll < 0.96) this.triggerTornado();
+    else this.triggerHurricane();
   }
 }

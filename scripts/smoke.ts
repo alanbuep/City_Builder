@@ -3,6 +3,7 @@
 import { City } from '../src/sim/City';
 import { Simulation } from '../src/sim/Simulation';
 import { TileType, TILE_DEF, capacityOf } from '../src/sim/types';
+import { generateTerrain } from '../src/sim/Terrain';
 
 function zonedCity(): { city: City; sim: Simulation } {
   const city = new City(10, 10);
@@ -901,6 +902,342 @@ const checks: Array<[string, boolean]> = [];
   console.log('[consumo] con fábrica → sin fábrica:', demandCon, '→', demandSin);
   checks.push(['demoler una fábrica reduce el consumo de servicios básicos', demandSin < demandCon]);
   checks.push(['la industria consume servicios básicos (demanda > población)', demandCon > sim.population]);
+}
+
+// 37) Catástrofes instantáneas: meteorito (cráter + incendios), tornado (recorrido
+// que arrasa) y huracán (barre la ciudad sin destruirla por completo).
+{
+  // Fuente de azar determinista (LCG) para que el test sea reproducible.
+  let seed = 987654321;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+
+  // Ciudad llena de casas (todas combustibles) para ver bien el daño.
+  const fill = (): { city: City; sim: Simulation } => {
+    const city = new City(12, 12);
+    const sim = new Simulation(city);
+    sim.mode = 'manual';
+    for (let z = 0; z < 12; z++) {
+      for (let x = 0; x < 12; x++) {
+        city.setType(x, z, TileType.Residential);
+        city.setLevel(x, z, 1);
+      }
+    }
+    city.drainDirty();
+    return { city, sim };
+  };
+
+  // (a) Meteorito: arrasa el cráter y prende fuegos alrededor.
+  const a = fill();
+  const target = a.sim.disasters.pickMeteorTarget(rand);
+  checks.push(['el meteorito elige un objetivo dentro del mapa', a.city.inBounds(target.x, target.z)]);
+  const met = a.sim.disasters.strikeMeteor(6, 6);
+  console.log('[meteorito] dañados:', met.destroyed.length, '| incendios:', met.ignited.length);
+  checks.push(['el meteorito daña el cráter (varios edificios)', met.destroyed.length >= 1]);
+  checks.push(['el edificio dañado NO desaparece (queda como ruina)', a.city.getTile(6, 6).type === TileType.Residential && a.city.getTile(6, 6).damaged]);
+  checks.push(['el impacto prende incendios alrededor', met.ignited.length > 0]);
+
+  // Reparar (ciudad aislada, sin incendios que interfieran): una ruina no aporta
+  // población; al repararla vuelve a contar y cobra el costo.
+  const d = new City(8, 8);
+  const dsim = new Simulation(d);
+  dsim.mode = 'manual';
+  d.setType(4, 4, TileType.Residential);
+  d.setLevel(4, 4, 1);
+  d.drainDirty();
+  dsim.disasters.strikeMeteor(4, 4); // edificio aislado: lo daña sin prender vecinos
+  dsim.tick();
+  const popRuina = dsim.population;
+  const moneyAntes = dsim.money;
+  const repaired = dsim.repair(4, 4);
+  dsim.tick();
+  console.log('[reparar] pop con ruina:', popRuina, '→ reparada:', dsim.population, '| reparó:', repaired);
+  checks.push(['una ruina no aporta población (pop 0)', popRuina === 0]);
+  checks.push(['se puede reparar un edificio dañado', repaired && !d.getTile(4, 4).damaged]);
+  checks.push(['reparar cobra el costo', dsim.money < moneyAntes]);
+  checks.push(['tras reparar el edificio vuelve a aportar', dsim.population > popRuina]);
+
+  // (b) Tornado: recorre el mapa y arrasa edificios en el camino.
+  const b = fill();
+  const tor = b.sim.disasters.spawnTornado(rand);
+  console.log('[tornado] recorrido:', tor.path?.length, '| arrasados:', tor.destroyed.length);
+  checks.push(['el tornado traza un recorrido', (tor.path?.length ?? 0) > 0]);
+  checks.push(['el tornado arrasa edificios en el camino', tor.destroyed.length > 0]);
+
+  // (c) Huracán: castiga toda la ciudad, pero no la borra entera.
+  const c = fill();
+  const total = 144; // 12×12 casas
+  const hur = c.sim.disasters.spawnHurricane(rand);
+  console.log('[huracán] arrasados:', hur.destroyed.length, '/', total, '| incendios:', hur.ignited.length);
+  checks.push(['el huracán arrasa varios edificios', hur.destroyed.length > 0]);
+  checks.push(['el huracán no destruye la ciudad entera', hur.destroyed.length < total]);
+}
+
+// 38) Investigación científica: los laboratorios generan ciencia (con energía) y
+// la ciencia acumulada desbloquea los hitos científicos (parque científico, etc.).
+{
+  const city = new City(10, 10);
+  const sim = new Simulation(city);
+  sim.mode = 'manual';
+  city.setType(0, 1, TileType.Road);
+  city.setType(0, 0, TileType.ResearchLab);
+  city.drainDirty();
+  sim.tick(); // todavía sin energía
+  const noPower = sim.science;
+  city.placeBuilding(3, 0, TileType.PowerPlant, 2); // ahora hay luz
+  city.drainDirty();
+  for (let i = 0; i < 5; i++) sim.tick();
+  console.log('[ciencia] sin luz:', noPower, '→ con luz tras 5 meses:', sim.science, '| ritmo:', sim.researchRate);
+  checks.push(['sin energía el laboratorio no produce ciencia', noPower === 0]);
+  checks.push(['con energía la ciencia se acumula', sim.science > 0 && sim.researchRate > 0]);
+
+  const u0 = sim.unlockedTypes();
+  checks.push(['el parque científico arranca bloqueado', !u0.has(TileType.SciencePark)]);
+  checks.push(['el centro espacial arranca bloqueado', !u0.has(TileType.SpaceCenter)]);
+  sim.science = 400; // supera el hito "Parque científico" (ciencia ≥ 300)
+  sim.tick();
+  console.log('[ciencia] desbloqueos con ciencia alta → parque científico:', sim.unlockedTypes().has(TileType.SciencePark));
+  checks.push(['con suficiente ciencia se desbloquea el parque científico', sim.unlockedTypes().has(TileType.SciencePark)]);
+
+  // La ciencia acumulada se conserva al guardar/cargar.
+  const sim2 = new Simulation(new City(10, 10));
+  sim2.load(sim.serialize());
+  checks.push(['guardar/cargar conserva la ciencia', sim2.science >= 400]);
+}
+
+// 39) El héroe: con un cuartel sano apaga los incendios él solo; se desbloquea con mucha ciencia.
+{
+  // (a) Sin héroe: un incendio sin bomberos daña el edificio.
+  const c1 = new City(10, 10);
+  const s1 = new Simulation(c1);
+  s1.mode = 'manual';
+  c1.setType(2, 2, TileType.Commercial);
+  c1.setLevel(2, 2, 1);
+  c1.drainDirty();
+  s1.disasters.igniteAt(2, 2);
+  let d1 = 0;
+  for (let i = 0; i < 8; i++) {
+    s1.tick();
+    d1 += s1.disasters.drainDestroyed().length;
+  }
+  checks.push(['sin héroe el incendio termina dañando', d1 > 0 || c1.getTile(2, 2).damaged]);
+
+  // (b) Con héroe (cuartel sano): el mismo incendio se apaga sin dañar.
+  const c2 = new City(12, 12);
+  const s2 = new Simulation(c2);
+  s2.mode = 'manual';
+  c2.placeBuilding(8, 8, TileType.HeroHQ, 2); // cuartel → la ciudad tiene héroe
+  c2.setType(2, 2, TileType.Commercial);
+  c2.setLevel(2, 2, 1);
+  c2.drainDirty();
+  s2.tick(); // recount → hasHero = true
+  s2.disasters.igniteAt(2, 2);
+  let d2 = 0;
+  for (let i = 0; i < 8; i++) {
+    s2.tick();
+    d2 += s2.disasters.drainDestroyed().length;
+  }
+  console.log('[héroe] sin héroe dañados:', d1, '| con héroe en llamas:', s2.disasters.burningCount, 'dañados:', d2, '| hasHero:', s2.hasHero);
+  checks.push(['la ciudad detecta el cuartel del héroe', s2.hasHero === true]);
+  checks.push(['con héroe el incendio se apaga (no daña)', s2.disasters.burningCount === 0 && d2 === 0 && !c2.getTile(2, 2).damaged]);
+
+  // (c) El cuartel se desbloquea con ciencia muy alta.
+  checks.push(['el cuartel del héroe arranca bloqueado', !s1.unlockedTypes().has(TileType.HeroHQ)]);
+  s1.science = 3500;
+  s1.tick();
+  console.log('[héroe] desbloqueo con ciencia 3500 →', s1.unlockedTypes().has(TileType.HeroHQ));
+  checks.push(['con muchísima ciencia se desbloquea el héroe', s1.unlockedTypes().has(TileType.HeroHQ)]);
+}
+
+// 40) Estilos de residencia: distinta densidad/tope; eco resiste la contaminación.
+{
+  checks.push(['lujo concentra más habitantes que estándar', capacityOf(TileType.Residential, 3, 'luxury') > capacityOf(TileType.Residential, 3, 'default')]);
+  checks.push(['suburbio es de baja densidad', capacityOf(TileType.Residential, 2, 'suburb') < capacityOf(TileType.Residential, 2, 'default')]);
+
+  // El suburbio topa en nivel 2 aunque la ciudad tenga de todo.
+  const city = new City(20, 20);
+  const sim = new Simulation(city);
+  city.setType(8, 9, TileType.Road);
+  city.setType(8, 8, TileType.Residential);
+  city.setResidentialStyle(8, 8, 'suburb');
+  city.placeBuilding(0, 0, TileType.PowerPlant, 2);
+  city.setType(3, 0, TileType.WaterTower);
+  city.setType(5, 0, TileType.GasPlant);
+  city.placeBuilding(7, 6, TileType.Government, 2);
+  city.drainDirty();
+  sim.tick();
+  console.log('[estilos] suburbio maxLevel:', sim.inspect(8, 8).maxLevel);
+  checks.push(['el suburbio topa en nivel 2', sim.inspect(8, 8).maxLevel === 2]);
+
+  // Eco resiste la contaminación: pegado a una fábrica grande sí puede crecer; estándar no.
+  const c2 = new City(16, 16);
+  const s2 = new Simulation(c2);
+  c2.placeBuilding(6, 6, TileType.FactoryLarge, 3); // contamina su área (ancla 6,6)
+  c2.placeBuilding(0, 0, TileType.PowerPlant, 2);
+  c2.setType(12, 0, TileType.WaterTower);
+  c2.setType(14, 0, TileType.GasPlant);
+  c2.setType(0, 12, TileType.Police);
+  c2.setType(5, 6, TileType.Residential); // estándar, muy contaminada
+  c2.setLevel(5, 6, 1);
+  c2.setType(6, 5, TileType.Residential); // eco, misma contaminación
+  c2.setLevel(6, 5, 1);
+  c2.setResidentialStyle(6, 5, 'eco');
+  c2.drainDirty();
+  s2.tick();
+  const std = s2.inspect(5, 6);
+  const eco = s2.inspect(6, 5);
+  console.log('[estilos] estándar maxLv', std.maxLevel, 'cont', std.pollution.toFixed(2), '| eco maxLv', eco.maxLevel, 'cont', eco.pollution.toFixed(2));
+  checks.push(['estándar pegado a la fábrica no crece (contaminación)', std.maxLevel === 1]);
+  checks.push(['eco resiste la contaminación y sí puede crecer', eco.maxLevel > 1]);
+}
+
+// 41) Renovables (energía limpia), agua para represas/puertos, y playa edificable.
+{
+  const c = new City(10, 10);
+  const s = new Simulation(c);
+  c.placeBuilding(0, 0, TileType.SolarPlant, 2);
+  s.tick();
+  console.log('[renovables] energía solar:', s.powerSupply);
+  checks.push(['la planta solar produce energía', s.powerSupply >= 220]);
+  checks.push([
+    'las renovables NO contaminan',
+    TILE_DEF[TileType.SolarPlant].pollution === undefined &&
+      TILE_DEF[TileType.WindTurbine].pollution === undefined &&
+      TILE_DEF[TileType.HydroPlant].pollution === undefined,
+  ]);
+  checks.push(['la central de carbón sí contamina (contraste)', TILE_DEF[TileType.PowerPlant].pollution !== undefined]);
+
+  // needsWater: represa y puerto exigen agua al lado.
+  checks.push(['la represa exige agua', TILE_DEF[TileType.HydroPlant].needsWater === true]);
+  checks.push(['el puerto (terminal) exige agua', TILE_DEF[TileType.ExportTerminal].needsWater === true]);
+
+  const c2 = new City(8, 8);
+  c2.setTerrain(5, 5, 'water');
+  c2.setTerrain(2, 2, 'beach');
+  console.log('[terreno] junto al agua (4,4):', c2.isNextToWater(4, 4), '| lejos (0,0):', c2.isNextToWater(0, 0));
+  checks.push(['isNextToWater detecta el agua al lado', c2.isNextToWater(4, 4) === true]);
+  checks.push(['isNextToWater es false lejos del agua', c2.isNextToWater(0, 0) === false]);
+  checks.push(['la playa es edificable', c2.isBuildable(2, 2) === true]);
+  checks.push(['el agua no es edificable', c2.isBuildable(5, 5) === false]);
+}
+
+// 42) Circuito de carreras (días de evento con renta extra) y decoración instantánea.
+{
+  const c = new City(12, 12);
+  const s = new Simulation(c);
+  s.mode = 'manual';
+  c.placeBuilding(2, 2, TileType.RaceTrack, 3);
+  c.drainDirty();
+  const m0 = s.money;
+  s.tick(); // el circuito organiza su primera carrera
+  console.log('[carreras] activa:', s.raceActive, '| dinero', m0, '→', Math.round(s.money));
+  checks.push(['el circuito organiza una carrera', s.raceActive === true]);
+  checks.push(['stats reporta la carrera + 1 circuito', s.getStats().race.active && s.getStats().race.tracks === 1]);
+  checks.push(['la carrera da renta extra (sube el dinero)', s.money > m0]);
+  let ended = false;
+  for (let i = 0; i < 6; i++) {
+    s.tick();
+    if (!s.raceActive) ended = true;
+  }
+  checks.push(['la carrera termina tras unos meses', ended]);
+
+  // Decoración: disponible desde el inicio, instantánea y con algo de valor del suelo.
+  checks.push(['el árbol es decoración', TILE_DEF[TileType.Tree].decoration === true]);
+  checks.push(['las decoraciones están desde el inicio', s.unlockedTypes().has(TileType.Tree) && s.unlockedTypes().has(TileType.Rock)]);
+
+  const c2 = new City(8, 8);
+  const s2 = new Simulation(c2);
+  for (let x = 0; x < 8; x++) {
+    c2.setType(x, 1, TileType.Residential);
+    c2.setLevel(x, 1, 1);
+  }
+  c2.setType(3, 2, TileType.Tree);
+  c2.drainDirty();
+  s2.tick();
+  console.log('[paisaje] valor del suelo junto al árbol:', s2.inspect(3, 1).value.toFixed(2));
+  checks.push(['el árbol sube el valor del suelo cercano', s2.inspect(3, 1).value > 0]);
+}
+
+// 43) Puentes: una calle puede ir sobre agua (puente) y sigue funcionando como calle.
+{
+  const c = new City(8, 8);
+  c.setTerrain(4, 4, 'water');
+  c.setType(4, 3, TileType.Road); // calle en tierra
+  c.setType(4, 4, TileType.Road); // puente sobre el agua
+  c.setType(4, 5, TileType.Road); // calle del otro lado
+  checks.push(['una calle sobre agua sigue siendo Road (puente)', c.getTile(4, 4).type === TileType.Road]);
+  checks.push(['el agua no es edificable (el puente es la excepción, solo calles)', c.isBuildable(4, 4) === false]);
+  checks.push(['el puente da acceso de calle a ambas orillas', c.hasRoadAccess(3, 4) && c.hasRoadAccess(5, 4)]);
+}
+
+// 44) Territorio por parcelas: arranca con el centro abierto y se expande con fichas.
+{
+  const city = new City(32, 32);
+  const sim = new Simulation(city);
+  const totalParcels = city.parcelCols * city.parcelRows;
+  checks.push(['el centro arranca desbloqueado', city.isUnlocked(16, 16) === true]);
+  checks.push(['las esquinas arrancan bloqueadas', city.isUnlocked(0, 0) === false]);
+  checks.push(['arranca casi todo abierto (solo 4 esquinas cerradas)', city.unlockedParcelCount() === totalParcels - 4]);
+
+  // Sin fichas no se puede desbloquear la esquina.
+  checks.push(['sin fichas no se desbloquea', sim.unlockTerritory(0, 0) === false]);
+  // Una parcela ya abierta no se "desbloquea".
+  checks.push(['no se desbloquea algo ya abierto', sim.unlockTerritory(16, 16) === false]);
+
+  // Gano fichas superando catástrofes y abro la esquina (contigua a los bordes abiertos).
+  const cost = sim.territoryUnlockCost();
+  for (let i = 0; i < cost; i++) sim.recordDisaster();
+  console.log('[territorio] fichas:', sim.territoryTokens(), '| costo:', cost);
+  checks.push(['las catástrofes dan fichas de territorio', sim.territoryTokens() >= cost]);
+  const opened = sim.unlockTerritory(0, 0); // esquina (0,0), pegada a bordes abiertos
+  console.log('[territorio] abrió esquina:', opened, '| abiertas:', city.unlockedParcelCount());
+  checks.push(['se abre una esquina contigua pagando fichas', opened && city.isUnlocked(0, 0)]);
+  checks.push(['desbloquear gasta fichas', sim.territoryTokens() < cost]);
+
+  // Guardar/cargar conserva el territorio (la esquina abierta + otra que sigue cerrada).
+  const city2 = new City(32, 32);
+  city2.load(city.serialize());
+  checks.push(['guardar/cargar conserva el territorio', city2.isUnlocked(0, 0) === true && city2.isUnlocked(31, 31) === false]);
+}
+
+// 45) Ciudad nueva: la generación de terreno crea mar, playa, montañas y tierra.
+// Se suman varias semillas para no depender de una sola (robusto/determinista).
+{
+  let water = 0;
+  let beach = 0;
+  let mountain = 0;
+  let land = 0;
+  let beachBuildable = true;
+  let waterBlocked = true;
+  for (let s = 0; s < 6; s++) {
+    let seed = 13579 + s * 99991;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const city = new City(32, 32);
+    generateTerrain(city, rand);
+    city.forEach((_t, x, z) => {
+      const k = city.getTerrain(x, z);
+      if (k === 'water') {
+        water++;
+        if (city.isBuildable(x, z)) waterBlocked = false;
+      } else if (k === 'beach') {
+        beach++;
+        if (!city.isBuildable(x, z)) beachBuildable = false;
+      } else if (k === 'mountain') mountain++;
+      else land++;
+    });
+  }
+  console.log('[terreno nuevo x6] agua:', water, '| playa:', beach, '| montaña:', mountain, '| tierra:', land);
+  checks.push(['una ciudad nueva genera mar', water > 200]);
+  checks.push(['genera playa en la costa', beach > 0]);
+  checks.push(['genera montañas', mountain > 0]);
+  checks.push(['queda bastante tierra construible', land > 6 * 32 * 32 * 0.4]);
+  checks.push(['el agua generada no es edificable', waterBlocked]);
+  checks.push(['la playa generada sí es edificable', beachBuildable]);
 }
 
 let allOk = true;

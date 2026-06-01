@@ -1,8 +1,21 @@
 import { City } from './City';
 import { TileType, TILE_DEF, isZone } from './types';
 
-/** Tipo de catástrofe. Por ahora solo incendios; luego meteoritos/tornados/huracanes. */
-export type DisasterKind = 'fire';
+/** Tipo de catástrofe. */
+export type DisasterKind = 'fire' | 'meteor' | 'tornado' | 'hurricane';
+
+/** Una casilla (resultado de una catástrofe: arrasada o incendiada). */
+export interface Cell {
+  x: number;
+  z: number;
+}
+
+/** Resumen de lo que provocó una catástrofe instantánea (para FX + avisos). */
+export interface StrikeResult {
+  destroyed: Cell[]; // edificios arrasados (anclas)
+  ignited: Cell[]; // focos de incendio nuevos
+  path?: Cell[]; // recorrido (tornado), para animar la trompa
+}
 
 /** Estado de una casilla en llamas. */
 interface Burning {
@@ -32,6 +45,17 @@ const DESTROY_TICKS = 3; // ticks de daño para destruir el edificio
 const SPREAD_HEAT = 0.9; // por encima de esto, puede prender vecinos
 const SPREAD_AFTER = 1; // ticks al rojo vivo antes de propagarse
 
+// --- Catástrofes instantáneas (meteorito / tornado / huracán) ---
+const METEOR_DESTROY_R = 1; // radio (Chebyshev) de destrucción total en el cráter
+const METEOR_FIRE_R = 2; // radio donde el impacto prende fuegos alrededor
+const TORNADO_LEN = 12; // casillas que recorre la trompa
+const TORNADO_DESTROY = 0.7; // prob. de arrasar el edificio de cada casilla del camino
+const TORNADO_IGNITE = 0.25; // prob. de prender fuego en una casilla del camino
+const TORNADO_WOBBLE = 0.45; // prob. de desviarse de lado en cada paso (serpentea)
+const HURRICANE_DESTROY = 0.18; // prob. por edificio de ser arrasado por el huracán
+const HURRICANE_IGNITE = 0.1; // prob. por edificio de incendiarse
+const HERO_SUPPRESS = 0.5; // cuánto baja el fuego de CADA casilla el héroe (apaga incendios él solo)
+
 /**
  * Sistema de catástrofes (engine-agnostic, sin Three.js). Hoy: INCENDIOS.
  *
@@ -46,6 +70,7 @@ export class DisasterSystem {
   private fires = new Map<number, Burning>();
   private destroyed: Array<{ x: number; z: number }> = []; // edificios destruidos (para avisar)
   private ignitedCount = 0; // focos nuevos desde el último drain
+  heroActive = false; // si la ciudad tiene héroe, apaga incendios en toda la ciudad
 
   constructor(private city: City) {
     this.w = city.width;
@@ -88,13 +113,18 @@ export class DisasterSystem {
     return n;
   }
 
-  /** ¿Es combustible? edificios y zonas con nivel>0 (no agua/calle/vacío/solar/montaña). */
+  /** ¿Es combustible? edificios y zonas con nivel>0 (no agua/calle/vacío/solar/montaña/ruina). */
   private flammable(x: number, z: number): boolean {
     if (!this.city.inBounds(x, z)) return false;
-    if (this.city.getTerrain(x, z) !== 'land') return false;
+    const ter = this.city.getTerrain(x, z);
+    if (ter === 'water' || ter === 'mountain') return false; // tierra y playa sí arden
     const t = this.city.getTile(x, z);
     if (t.type === TileType.Empty || t.type === TileType.Road || t.type === TileType.Construction) return false;
     if (isZone(t.type) && t.level <= 0) return false; // solar zonificado sin construir
+    // Una ruina (edificio ya dañado) no vuelve a arder ni a ser arrasada (el dato vive en el ancla).
+    const ax = t.anchor ? t.anchor.x : x;
+    const az = t.anchor ? t.anchor.z : z;
+    if (this.city.getTile(ax, az).damaged) return false;
     return true;
   }
 
@@ -126,6 +156,130 @@ export class DisasterSystem {
     return { x, z };
   }
 
+  /**
+   * Arrasa el edificio que ocupa (x,z) si es combustible: lo resuelve a su ancla
+   * (edificios multi-casilla), lo borra y lo agrega a `out`. `keys` evita destruir
+   * dos veces el mismo edificio. No toca `this.destroyed` (eso es para el fuego).
+   */
+  private wreck(x: number, z: number, out: Cell[], keys: Set<number>): void {
+    if (!this.flammable(x, z)) return;
+    const t = this.city.getTile(x, z);
+    const ax = t.anchor ? t.anchor.x : x;
+    const az = t.anchor ? t.anchor.z : z;
+    const key = this.idx(ax, az);
+    if (keys.has(key)) return;
+    keys.add(key);
+    this.fires.delete(this.idx(x, z)); // apaga el fuego que hubiera (el resto lo limpia tick)
+    this.city.setDamaged(ax, az, true); // queda como ruina reparable (no desaparece)
+    out.push({ x: ax, z: az });
+  }
+
+  /**
+   * Elige dónde caería un meteorito: preferentemente sobre un edificio (impacto
+   * dramático); si no hay, sobre tierra al azar; en última instancia, el centro.
+   */
+  pickMeteorTarget(rand: () => number): Cell {
+    const buildings: number[] = [];
+    const land: number[] = [];
+    this.city.forEach((_t, x, z) => {
+      if (this.city.isSubCell(x, z)) return;
+      if (this.flammable(x, z)) buildings.push(this.idx(x, z));
+      else if (this.city.getTerrain(x, z) === 'land') land.push(this.idx(x, z));
+    });
+    const pool = buildings.length ? buildings : land;
+    if (pool.length === 0) return { x: this.w >> 1, z: Math.floor(this.city.height / 2) };
+    const pick = pool[Math.floor(rand() * pool.length) % pool.length];
+    return { x: pick % this.w, z: Math.floor(pick / this.w) };
+  }
+
+  /**
+   * METEORITO: destrucción total en el cráter (radio Chebyshev METEOR_DESTROY_R)
+   * y un anillo de incendios alrededor (lo combustible que sobrevivió al borde).
+   */
+  strikeMeteor(x: number, z: number): StrikeResult {
+    const destroyed: Cell[] = [];
+    const ignited: Cell[] = [];
+    const keys = new Set<number>();
+    for (let dz = -METEOR_DESTROY_R; dz <= METEOR_DESTROY_R; dz++) {
+      for (let dx = -METEOR_DESTROY_R; dx <= METEOR_DESTROY_R; dx++) {
+        this.wreck(x + dx, z + dz, destroyed, keys);
+      }
+    }
+    for (let dz = -METEOR_FIRE_R; dz <= METEOR_FIRE_R; dz++) {
+      for (let dx = -METEOR_FIRE_R; dx <= METEOR_FIRE_R; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) <= METEOR_DESTROY_R) continue; // ya está arrasado
+        if (this.igniteAt(x + dx, z + dz)) ignited.push({ x: x + dx, z: z + dz });
+      }
+    }
+    return { destroyed, ignited };
+  }
+
+  /**
+   * TORNADO: nace en un borde al azar y cruza el mapa serpenteando. En cada
+   * casilla del camino arrasa el edificio (TORNADO_DESTROY) o, si no, lo incendia
+   * (TORNADO_IGNITE). Devuelve el recorrido (para animar la trompa) + lo afectado.
+   */
+  spawnTornado(rand: () => number): StrikeResult {
+    const W = this.w;
+    const H = this.city.height;
+    const horiz = rand() < 0.5;
+    const dir = rand() < 0.5 ? 1 : -1;
+    let cx: number;
+    let cz: number;
+    if (horiz) {
+      cx = dir > 0 ? 0 : W - 1;
+      cz = Math.floor(rand() * H) % H;
+    } else {
+      cz = dir > 0 ? 0 : H - 1;
+      cx = Math.floor(rand() * W) % W;
+    }
+
+    const path: Cell[] = [];
+    const destroyed: Cell[] = [];
+    const ignited: Cell[] = [];
+    const keys = new Set<number>();
+    for (let i = 0; i < TORNADO_LEN; i++) {
+      if (!this.city.inBounds(cx, cz)) break;
+      path.push({ x: cx, z: cz });
+      if (rand() < TORNADO_DESTROY) {
+        this.wreck(cx, cz, destroyed, keys);
+      } else if (rand() < TORNADO_IGNITE) {
+        if (this.igniteAt(cx, cz)) ignited.push({ x: cx, z: cz });
+      }
+      // Avanza en el eje principal y, a veces, se desvía de lado.
+      if (horiz) cx += dir;
+      else cz += dir;
+      if (rand() < TORNADO_WOBBLE) {
+        if (horiz) cz += rand() < 0.5 ? 1 : -1;
+        else cx += rand() < 0.5 ? 1 : -1;
+      }
+    }
+    return { destroyed, ignited, path };
+  }
+
+  /**
+   * HURACÁN: barre toda la ciudad. Cada edificio tiene una probabilidad de ser
+   * arrasado y otra de incendiarse. Junta las anclas primero para no alterar el
+   * recorrido al ir borrando edificios.
+   */
+  spawnHurricane(rand: () => number): StrikeResult {
+    const targets: Cell[] = [];
+    this.city.forEach((_t, x, z) => {
+      if (!this.city.isSubCell(x, z) && this.flammable(x, z)) targets.push({ x, z });
+    });
+    const destroyed: Cell[] = [];
+    const ignited: Cell[] = [];
+    const keys = new Set<number>();
+    for (const c of targets) {
+      if (rand() < HURRICANE_DESTROY) {
+        this.wreck(c.x, c.z, destroyed, keys);
+      } else if (rand() < HURRICANE_IGNITE) {
+        if (this.igniteAt(c.x, c.z)) ignited.push(c);
+      }
+    }
+    return { destroyed, ignited };
+  }
+
   /** Estaciones de bomberos activas (ancla + radio/fuerza de su cobertura). */
   private fireStations(): Array<{ x: number; z: number; radius: number; strength: number }> {
     const out: Array<{ x: number; z: number; radius: number; strength: number }> = [];
@@ -153,9 +307,9 @@ export class DisasterSystem {
     return Math.min(1, s);
   }
 
-  /** Destruye el edificio de (x,z): se quema por completo (queda el terreno libre). */
+  /** El fuego consume el edificio de (x,z): queda como ruina quemada (reparable). */
   private destroy(x: number, z: number): void {
-    this.city.setType(x, z, TileType.Empty); // limpia el edificio entero (incl. multi-casilla)
+    this.city.setDamaged(x, z, true); // ruina reparable, no se borra (incl. multi-casilla, vía ancla)
     this.destroyed.push({ x, z });
   }
 
@@ -176,7 +330,7 @@ export class DisasterSystem {
       }
 
       const s = this.suppressionAt(stations, x, z);
-      b.heat += BURN_GROWTH - SUPPRESS_TOTAL * s;
+      b.heat += BURN_GROWTH - SUPPRESS_TOTAL * s - (this.heroActive ? HERO_SUPPRESS : 0);
       if (b.heat <= 0) {
         this.fires.delete(i); // los bomberos lo apagaron
         continue;

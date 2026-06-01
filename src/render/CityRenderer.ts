@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { City } from '../sim/City';
-import { TileType, Tile, TerrainKind, TILE_DEF, isZone, MAX_LEVEL } from '../sim/types';
+import { TileType, Tile, TerrainKind, ResidentialStyle, TILE_DEF, isZone, MAX_LEVEL } from '../sim/types';
 import { GridSpec, tileCenterX, tileCenterZ } from '../grid';
 import { SmokeSystem } from './SmokeSystem';
+import { FireSystem } from './FireSystem';
+import { DisasterFx } from './DisasterFx';
+import { HeroFx } from './HeroFx';
+import { RaceFx } from './RaceFx';
+import { AirFx } from './AirFx';
 
 // Edificios con chimenea: emiten humo (fábricas, centrales e industria pesada).
 const SMOKING: Set<TileType> = new Set([
@@ -39,10 +44,20 @@ const MODEL_FILE: Partial<Record<TileType, string>> = {
   [TileType.PowerPlant]: 'power',
   [TileType.WaterTower]: 'water',
   [TileType.GasPlant]: 'gas',
+  [TileType.SolarPlant]: 'solar',
+  [TileType.WindTurbine]: 'wind',
+  [TileType.HydroPlant]: 'hydro',
   [TileType.ShoppingMall]: 'mall',
   [TileType.Hotel]: 'hotel',
   [TileType.OfficeTower]: 'office',
   [TileType.TechPark]: 'techpark',
+  [TileType.ResearchLab]: 'research_lab',
+  [TileType.Observatory]: 'observatory',
+  [TileType.SciencePark]: 'science_park',
+  [TileType.SpaceCenter]: 'space_center',
+  [TileType.HeroHQ]: 'hero_hq',
+  [TileType.HeroBeacon]: 'hero_beacon',
+  [TileType.HeroStatue]: 'hero_statue',
   [TileType.SandPit]: 'sandpit',
   [TileType.CementPlant]: 'cement',
   [TileType.BrickKiln]: 'brickkiln',
@@ -55,6 +70,11 @@ const MODEL_FILE: Partial<Record<TileType, string>> = {
   [TileType.Casino]: 'casino',
   [TileType.Cinema]: 'cinema',
   [TileType.AmusementPark]: 'amusement',
+  [TileType.RaceTrack]: 'race_track',
+  [TileType.BalloonPort]: 'balloon_port',
+  [TileType.AirshipDock]: 'airship_dock',
+  [TileType.Bush]: 'bush',
+  [TileType.Flowers]: 'flowers',
   [TileType.Church]: 'church',
   [TileType.Library]: 'library',
   [TileType.Monument]: 'monument',
@@ -84,14 +104,37 @@ const MODEL_FILE: Partial<Record<TileType, string>> = {
   [TileType.Dealership]: 'dealership',
 };
 
-// Modelos por nivel de cada zona desarrollable.
+// Modelos por nivel de las zonas comercial/industrial (el residencial va por estilo).
 const ZONE_MODELS: Partial<Record<TileType, string[]>> = {
-  [TileType.Residential]: ['residential_1', 'residential_2', 'residential_3', 'residential_4', 'residential_5'],
   [TileType.Commercial]: ['commercial_1', 'commercial_2', 'commercial_3'],
   [TileType.Industrial]: ['industrial_1', 'industrial_2', 'industrial_3'],
 };
 
+// Escalera de modelos del residencial según su ESTILO (cada estilo, su look).
+const RES_STYLE_MODELS: Record<ResidentialStyle, string[]> = {
+  default: ['residential_1', 'residential_2', 'residential_3', 'residential_4', 'residential_5'],
+  eco: ['res_eco_1', 'res_eco_2', 'res_eco_3'],
+  luxury: ['res_luxury_1', 'res_luxury_2', 'res_luxury_3'],
+  suburb: ['res_suburb_1', 'res_suburb_2', 'res_suburb_3'],
+};
+
 const ROAD_MODELS = ['road_straight', 'road_corner', 'road_tee', 'road_cross', 'road_end'];
+
+// Variantes de paisaje: el árbol y la roca eligen un modelo según la casilla (variedad).
+const TREE_MODELS = ['tree_oak', 'tree_pine'];
+const ROCK_MODELS = ['rock_large', 'rock_small'];
+const DECO_MODELS = [...TREE_MODELS, ...ROCK_MODELS, 'tree_palm'];
+
+// Puentes: una calle sobre agua se dibuja con la pieza de puente (corre N-S como road_straight).
+const BRIDGE_MODELS = ['bridge_straight', 'bridge_ramp'];
+
+// Modelo propio de cada terreno. `beach_sand` ya existe; `mountain`/`sea` cargan
+// en silencio y, hasta que existan, el terreno cae al cubo de color de respaldo.
+const TERRAIN_MODEL: Partial<Record<TerrainKind, string>> = { beach: 'beach_sand', mountain: 'mountain', water: 'sea' };
+
+// Modelo genérico de edificio dañado (ruina) que se muestra sobre cualquier
+// edificio arrasado por una catástrofe hasta que se repara o demuele.
+const DAMAGED_MODEL = 'building_burnt';
 
 // --- Auto-tiling de calles ---------------------------------------------------
 // Máscara de conexiones a calles vecinas. Bits: N=1, E=2, S=4, W=8.
@@ -117,7 +160,7 @@ function popcount(mask: number): number {
  *  - road_straight: conecta N+S (corre norte-sur).
  *  - road_corner:   conecta N+E.
  *  - road_tee:      conecta N+E+S (le falta W).
- *  - road_end:      conecta solo S (la punta abierta mira al norte).
+ *  - road_end:      la punta abierta mira al NORTE → conecta al N (base = N).
  *  - road_cross:    las cuatro.
  * Si visualmente quedan giradas, ajustar estas bases o ROAD_ROT_SIGN.
  */
@@ -130,7 +173,7 @@ function roadModel(mask: number): { file: string; k: number } {
   let base: number;
   if (count === 1) {
     file = 'road_end';
-    base = S;
+    base = N; // la boca abierta del modelo mira al norte (conecta con la calle del norte)
   } else if (count === 3) {
     file = 'road_tee';
     base = N | E | S;
@@ -259,6 +302,10 @@ export class CityRenderer {
 
   // Humo de fábricas/centrales y reloj para animarlo con dt real.
   private smoke: SmokeSystem;
+  private fx: DisasterFx; // efectos de catástrofes (meteorito/tornado/huracán/escombros)
+  private heroFx: HeroFx; // el héroe volador (cuando la ciudad tiene cuartel)
+  private raceFx: RaceFx; // autos de carrera durante los días de evento
+  private airFx: AirFx; // aviones desde aeropuertos + dirigible de ambiente
   private lastAnim = 0;
 
   // Marcadores flotantes (nubes de sugerencia / obras de zona).
@@ -266,16 +313,23 @@ export class CityRenderer {
   private markerPool: THREE.Sprite[] = [];
   private markerMats: Record<'plan' | 'build' | 'upgrade', THREE.SpriteMaterial>;
 
-  // Fuego de incendios (sprites 🔥 que parpadean sobre las casillas en llamas).
-  private fireGroup = new THREE.Group();
-  private firePool: THREE.Sprite[] = [];
-  private fireMat: THREE.SpriteMaterial;
-  private fireCells: Array<{ x: number; z: number; heat: number }> = [];
+  // Fuego de incendios: sistema de partículas (llamas que suben y titilan).
+  private fire: FireSystem;
 
   // Burbujas de opinión de los vecinos (globitos de diálogo sobre las casas).
   private bubbleGroup = new THREE.Group();
   private bubblePool: THREE.Sprite[] = [];
   private bubbleCache = new Map<string, THREE.SpriteMaterial>();
+
+  // Territorio bloqueado: velo oscuro + candado sobre las parcelas cerradas.
+  private lockedGroup = new THREE.Group();
+  private lockedPool: THREE.Mesh[] = [];
+  private lockLabelPool: THREE.Sprite[] = [];
+  private lockPlaneGeo = new THREE.PlaneGeometry(1, 1);
+  private lockMat = new THREE.MeshBasicMaterial({ color: 0x1a2535, transparent: true, opacity: 0.22, depthWrite: false });
+  private lockLabelMat!: THREE.SpriteMaterial;
+
+  private ocean!: THREE.Mesh; // plano de océano infinito (se ubica del lado del mar)
 
   private cube = new THREE.BoxGeometry(1, 1, 1);
   private white = new THREE.Color(0xffffff);
@@ -294,14 +348,30 @@ export class CityRenderer {
   ) {
     scene.add(this.group);
 
-    const groundSize = Math.max(city.width, city.height) * grid.tileSize;
+    // Pasto que se extiende MUCHO más allá del área jugable (terreno "infinito":
+    // así no se ve el plano flotando). El área donde se construye la marca la
+    // grilla + las parcelas; este pasto es solo decorado hasta el horizonte.
+    const play = Math.max(city.width, city.height) * grid.tileSize;
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(groundSize, groundSize),
+      new THREE.PlaneGeometry(play + 2000, play + 2000), // pasto hasta el horizonte (tierra "infinita")
       new THREE.MeshStandardMaterial({ color: 0x7cb342 }),
     );
     ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.02; // apenas por debajo, para no competir con el terreno jugable
     ground.receiveShadow = true;
     scene.add(ground);
+
+    // Océano infinito: un plano de agua enorme que arranca en la costa y se va al
+    // horizonte (así el mar no "se corta"). Se ubica del lado donde está el mar.
+    this.ocean = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      // Iluminado igual que el agua jugable; el color se toma del propio sea.glb (ver refreshOcean).
+      new THREE.MeshStandardMaterial({ color: 0x4d86b0 }),
+    );
+    this.ocean.rotation.x = -Math.PI / 2;
+    this.ocean.position.y = 0.04; // a la altura del agua jugable
+    this.ocean.visible = false;
+    scene.add(this.ocean);
 
     const gridHelper = new THREE.GridHelper(city.width * grid.tileSize, city.width, 0x224422, 0x224422);
     const gridMat = gridHelper.material as THREE.Material;
@@ -356,36 +426,69 @@ export class CityRenderer {
     this.markerMats = { plan: emojiMaterial('▶️'), build: emojiMaterial('🏗️'), upgrade: emojiMaterial('💡') };
     scene.add(this.markerGroup);
 
-    this.fireMat = emojiMaterial('🔥');
-    scene.add(this.fireGroup);
-
     scene.add(this.bubbleGroup);
 
+    this.lockLabelMat = emojiMaterial('🔒');
+    scene.add(this.lockedGroup);
+
     this.smoke = new SmokeSystem(scene);
+    this.fire = new FireSystem(scene);
+    this.fx = new DisasterFx(scene);
+    const extent = Math.max(city.width, city.height) * grid.tileSize;
+    this.heroFx = new HeroFx(scene, extent);
+    this.raceFx = new RaceFx(scene);
+    this.airFx = new AirFx(scene, extent);
 
     this.loadModels();
   }
 
   // --- Carga de modelos ------------------------------------------------------
 
-  /** Carga todos los .glb en paralelo; al terminar redibuja la ciudad entera. */
+  /**
+   * Carga todos los .glb en paralelo; al terminar redibuja la ciudad entera.
+   * Los REQUERIDOS avisan si faltan; los OPCIONALES (variantes de calle por nivel
+   * y ruinas por tamaño) cargan en silencio: si todavía no se dibujaron, el motor
+   * cae al modelo base, y aparecen solos cuando se agreguen los .glb.
+   */
   private loadModels(): void {
     const loader = new GLTFLoader();
-    const files = [
+    // Opcionales: calle por nivel (avenida _1 / autopista _2), ruinas 2×2/3×3 y
+    // modelos todavía no dibujados (renovables) → cargan en silencio si faltan.
+    const optional = [
+      ...ROAD_MODELS.flatMap((r) => [`${r}_1`, `${r}_2`]),
+      `${DAMAGED_MODEL}_2`,
+      `${DAMAGED_MODEL}_3`,
+      'solar',
+      'wind',
+      'hydro',
+      'race_track',
+      'balloon_port',
+      'airship_dock',
+      'mountain',
+      'sea',
+    ];
+    const optionalSet = new Set(optional);
+    const required = [
       ...new Set([
         ...Object.values(MODEL_FILE),
         ...Object.values(ZONE_MODELS).flat(),
+        ...Object.values(RES_STYLE_MODELS).flat(),
         ...ROAD_MODELS,
+        ...DECO_MODELS,
+        ...BRIDGE_MODELS,
+        ...Object.values(TERRAIN_MODEL),
+        DAMAGED_MODEL,
       ]),
-    ];
-    let pending = files.length;
+    ].filter((f) => !optionalSet.has(f));
+    let pending = required.length + optional.length;
     const done = () => {
       if (--pending <= 0) {
         this.modelsReady = true;
         this.redrawAll();
+        this.refreshOcean(); // ya cargó sea.glb → toma su color y se ubica
       }
     };
-    for (const f of files) {
+    const load = (f: string, silent: boolean) =>
       loader.load(
         `models/${f}.glb`,
         (gltf) => {
@@ -394,11 +497,12 @@ export class CityRenderer {
         },
         undefined,
         (err) => {
-          console.warn(`No se pudo cargar el modelo ${f}.glb`, err);
+          if (!silent) console.warn(`No se pudo cargar el modelo ${f}.glb`, err);
           done();
         },
       );
-    }
+    for (const f of required) load(f, false);
+    for (const f of optional) load(f, true);
   }
 
   /**
@@ -429,6 +533,98 @@ export class CityRenderer {
     }
   }
 
+  /**
+   * Ubica el océano infinito del lado del mapa que tenga más agua en el borde, y
+   * lo extiende hacia afuera hasta el horizonte. Si ningún borde toca agua, lo oculta.
+   */
+  refreshOcean(): void {
+    const w = this.city.width;
+    const h = this.city.height;
+    const t = this.grid.tileSize;
+    let cN = 0;
+    let cS = 0;
+    let cW = 0;
+    let cE = 0;
+    for (let x = 0; x < w; x++) {
+      if (this.city.getTerrain(x, 0) === 'water') cN++;
+      if (this.city.getTerrain(x, h - 1) === 'water') cS++;
+    }
+    for (let z = 0; z < h; z++) {
+      if (this.city.getTerrain(0, z) === 'water') cW++;
+      if (this.city.getTerrain(w - 1, z) === 'water') cE++;
+    }
+    const max = Math.max(cN, cS, cW, cE);
+    // Solo hay océano infinito si un borde es una COSTA de verdad (mucho agua en
+    // ese lado). Un laguito o un río interior NO disparan el océano (quedaba feo).
+    if (max < Math.max(8, Math.round(Math.min(w, h) * 0.35))) {
+      this.ocean.visible = false;
+      return;
+    }
+    // El océano toma el MISMO color que el agua jugable (sea.glb), para que no se note el corte.
+    const seaTmpl = this.models.get('sea');
+    if (seaTmpl) {
+      seaTmpl.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          const m = (Array.isArray(o.material) ? o.material[0] : o.material) as THREE.MeshStandardMaterial;
+          if (m && m.color) (this.ocean.material as THREE.MeshStandardMaterial).color.copy(m.color);
+        }
+      });
+    }
+    const play = Math.max(w, h) * t;
+    const half = play / 2;
+    const margin = 1200; // se va bien lejos (mar "infinito")
+    const long = play + 2 * margin;
+    if (max === cN) {
+      this.ocean.scale.set(long, margin, 1);
+      this.ocean.position.set(0, 0.04, -half - margin / 2);
+    } else if (max === cS) {
+      this.ocean.scale.set(long, margin, 1);
+      this.ocean.position.set(0, 0.04, half + margin / 2);
+    } else if (max === cW) {
+      this.ocean.scale.set(margin, long, 1);
+      this.ocean.position.set(-half - margin / 2, 0.04, 0);
+    } else {
+      this.ocean.scale.set(margin, long, 1);
+      this.ocean.position.set(half + margin / 2, 0.04, 0);
+    }
+    this.ocean.visible = true;
+  }
+
+  /** Dibuja el velo oscuro + candado sobre las parcelas de territorio bloqueado. */
+  setLockedRegions(regions: Array<{ x: number; z: number; w: number; h: number }>): void {
+    while (this.lockedPool.length < regions.length) {
+      const plane = new THREE.Mesh(this.lockPlaneGeo, this.lockMat);
+      plane.rotation.x = -Math.PI / 2;
+      plane.renderOrder = 4;
+      plane.visible = false;
+      this.lockedGroup.add(plane);
+      this.lockedPool.push(plane);
+      const label = new THREE.Sprite(this.lockLabelMat);
+      label.scale.set(1.1, 1.1, 1.1);
+      label.renderOrder = 5;
+      label.visible = false;
+      this.lockedGroup.add(label);
+      this.lockLabelPool.push(label);
+    }
+    for (let i = 0; i < this.lockedPool.length; i++) {
+      const r = regions[i];
+      const plane = this.lockedPool[i];
+      const label = this.lockLabelPool[i];
+      if (!r) {
+        plane.visible = false;
+        label.visible = false;
+        continue;
+      }
+      const cx = (tileCenterX(r.x, this.grid) + tileCenterX(r.x + r.w - 1, this.grid)) / 2;
+      const cz = (tileCenterZ(r.z, this.grid) + tileCenterZ(r.z + r.h - 1, this.grid)) / 2;
+      plane.scale.set(r.w * this.grid.tileSize, r.h * this.grid.tileSize, 1);
+      plane.position.set(cx, 0.12, cz); // bajo, casi sobre el piso (no tapa lo construido)
+      plane.visible = true;
+      label.position.set(cx, 1.2, cz);
+      label.visible = true;
+    }
+  }
+
   /** Coloca/actualiza los marcadores flotantes (reutiliza un pool de sprites). */
   setMarkers(markers: Array<{ x: number; z: number; kind: 'plan' | 'build' | 'upgrade' }>): void {
     while (this.markerPool.length < markers.length) {
@@ -452,26 +648,11 @@ export class CityRenderer {
     }
   }
 
-  /** Coloca/actualiza el fuego sobre las casillas en llamas (pool de sprites 🔥). */
+  /** Actualiza los focos de incendio (llamas de partículas sobre las casillas en llamas). */
   setFires(cells: Array<{ x: number; z: number; heat: number }>): void {
-    this.fireCells = cells;
-    while (this.firePool.length < cells.length) {
-      const sprite = new THREE.Sprite(this.fireMat);
-      sprite.renderOrder = 6;
-      sprite.visible = false;
-      this.fireGroup.add(sprite);
-      this.firePool.push(sprite);
-    }
-    for (let i = 0; i < this.firePool.length; i++) {
-      const sprite = this.firePool[i];
-      const c = cells[i];
-      if (c) {
-        sprite.position.set(tileCenterX(c.x, this.grid), 0.6, tileCenterZ(c.z, this.grid));
-        sprite.visible = true;
-      } else {
-        sprite.visible = false;
-      }
-    }
+    this.fire.setFires(
+      cells.map((c) => ({ x: tileCenterX(c.x, this.grid), y: 0.15, z: tileCenterZ(c.z, this.grid), heat: c.heat })),
+    );
   }
 
   /** Coloca/actualiza las burbujas de opinión sobre las casas (pool de sprites). */
@@ -592,19 +773,65 @@ export class CityRenderer {
       const pulse = 0.45 + 0.3 * Math.sin(timeMs * 0.006);
       (this.selected.material as THREE.MeshBasicMaterial).opacity = pulse;
     }
-    // Parpadeo del fuego: cada llama late a su ritmo (según su posición) y crece con el heat.
-    for (let i = 0; i < this.firePool.length; i++) {
-      const sprite = this.firePool[i];
-      if (!sprite.visible) continue;
-      const c = this.fireCells[i];
-      const flicker = 0.85 + 0.25 * Math.sin(timeMs * 0.02 + (c ? c.x * 1.7 + c.z * 2.3 : 0));
-      const base = 0.7 + (c ? c.heat : 0.5) * 0.8;
-      const s = base * flicker;
-      sprite.scale.set(s, s, s);
-    }
     const dt = this.lastAnim ? (timeMs - this.lastAnim) / 1000 : 0;
     this.lastAnim = timeMs;
     this.smoke.update(dt);
+    this.fire.update(dt);
+    this.fx.update(dt);
+    this.heroFx.update(dt);
+    this.raceFx.update(dt);
+    this.airFx.update(dt);
+  }
+
+  /** Carrera en curso + circuitos (anclas en casillas) por donde corren los autos. */
+  setRace(active: boolean, tracks: Array<{ x: number; z: number; size: number }>): void {
+    this.raceFx.setRace(
+      active,
+      tracks.map((t) => ({
+        x: (tileCenterX(t.x, this.grid) + tileCenterX(t.x + t.size - 1, this.grid)) / 2,
+        z: (tileCenterZ(t.z, this.grid) + tileCenterZ(t.z + t.size - 1, this.grid)) / 2,
+        r: t.size * this.grid.tileSize * 0.4,
+      })),
+    );
+  }
+
+  /** Edificios de origen de las aeronaves (anclas en casillas): aviones/dirigible/globos. */
+  setAirSources(
+    airports: Array<{ x: number; z: number; size: number }>,
+    docks: Array<{ x: number; z: number; size: number }>,
+    ports: Array<{ x: number; z: number; size: number }>,
+  ): void {
+    const toWorld = (a: { x: number; z: number; size: number }) => ({
+      x: (tileCenterX(a.x, this.grid) + tileCenterX(a.x + a.size - 1, this.grid)) / 2,
+      z: (tileCenterZ(a.z, this.grid) + tileCenterZ(a.z + a.size - 1, this.grid)) / 2,
+    });
+    this.airFx.setSources(airports.map(toWorld), docks.map(toWorld), ports.map(toWorld));
+  }
+
+  /** Estado del héroe volador: activo + a qué incendio acudir (en casillas), o null. */
+  setHero(active: boolean, target: { x: number; z: number } | null): void {
+    this.heroFx.setState(
+      active,
+      target ? { x: tileCenterX(target.x, this.grid), z: tileCenterZ(target.z, this.grid) } : null,
+    );
+  }
+
+  // --- Catástrofes (efectos visuales; reciben coordenadas de casilla) ---------
+
+  /** Lanza un meteorito sobre la casilla (x,z); al impactar dispara `onImpact`. */
+  playMeteor(x: number, z: number, onImpact: () => void): void {
+    this.fx.meteor(tileCenterX(x, this.grid), tileCenterZ(z, this.grid), onImpact);
+  }
+
+  /** Anima la trompa de un tornado a lo largo del recorrido (en casillas). */
+  playTornado(path: Array<{ x: number; z: number }>): void {
+    this.fx.tornado(path.map((c) => ({ x: tileCenterX(c.x, this.grid), z: tileCenterZ(c.z, this.grid) })));
+  }
+
+  /** Anima el remolino de un huracán sobre toda la ciudad. */
+  playHurricane(): void {
+    const extent = Math.max(this.city.width, this.city.height) * this.grid.tileSize;
+    this.fx.hurricane(0, 0, extent);
   }
 
   private key(x: number, z: number): string {
@@ -614,6 +841,9 @@ export class CityRenderer {
   /** Aspecto de un cubo de respaldo (cuando no hay modelo cargado/disponible). */
   private appearance(tile: Tile): { color: THREE.Color; height: number; opacity: number } | null {
     if (tile.type === TileType.Empty) return null;
+
+    // Ruina (sin el modelo de edificio dañado cargado): un montículo gris oscuro.
+    if (tile.damaged) return { color: new THREE.Color(0x4a4038), height: 0.3, opacity: 1 };
 
     if (tile.type === TileType.Road) {
       const h = ROAD_HEIGHTS[Math.min(tile.level, ROAD_HEIGHTS.length - 1)];
@@ -652,6 +882,9 @@ export class CityRenderer {
       const h = 1.0 + ((x * 7 + z * 13) % 5) * 0.28;
       return { color: new THREE.Color(0x6d6052), height: h, opacity: 1 };
     }
+    if (kind === 'beach') {
+      return { color: new THREE.Color(0xe6d29a), height: 0.05, opacity: 1 }; // arena
+    }
     return null;
   }
 
@@ -673,8 +906,30 @@ export class CityRenderer {
   /** Nombre del modelo (y rotación) para un tile, o null si no corresponde modelo. */
   private modelFor(tile: Tile, x: number, z: number): { file: string; rotY: number } | null {
     if (tile.type === TileType.Road) {
-      const { file, k } = roadModel(this.roadMask(x, z));
-      return { file, rotY: ROAD_ROT_SIGN * k * (Math.PI / 2) };
+      const mask = this.roadMask(x, z);
+      // Sobre agua, la calle es un PUENTE: pieza recta orientada según el cruce.
+      if (this.city.getTerrain(x, z) === 'water' && this.models.has('bridge_straight')) {
+        const horizontal = (mask & E) !== 0 || (mask & W) !== 0;
+        return { file: 'bridge_straight', rotY: horizontal ? ROAD_ROT_SIGN * (Math.PI / 2) : 0 };
+      }
+      const { file, k } = roadModel(mask);
+      // Avenida/autopista usan un modelo propio (`X_1` / `X_2`) si existe; si no, la calle base.
+      const variant = tile.level > 0 ? `${file}_${tile.level}` : file;
+      const chosen = this.models.has(variant) ? variant : file;
+      return { file: chosen, rotY: ROAD_ROT_SIGN * k * (Math.PI / 2) };
+    }
+    if (tile.type === TileType.Residential) {
+      if (tile.level <= 0) return null; // solar vacío → cubo plano
+      const ladder = RES_STYLE_MODELS[tile.style] ?? RES_STYLE_MODELS.default;
+      return { file: ladder[clamp(tile.level, 1, ladder.length) - 1], rotY: 0 };
+    }
+    // Paisaje: árbol/roca eligen variante por casilla y rotan para no verse clonados.
+    if (tile.type === TileType.Tree) {
+      const file = this.city.getTerrain(x, z) === 'beach' ? 'tree_palm' : TREE_MODELS[(x * 3 + z) % TREE_MODELS.length];
+      return { file, rotY: ((x + z) % 4) * (Math.PI / 2) };
+    }
+    if (tile.type === TileType.Rock) {
+      return { file: ROCK_MODELS[(x * 2 + z) % ROCK_MODELS.length], rotY: ((x * 5 + z) % 4) * (Math.PI / 2) };
     }
     const zoneModels = ZONE_MODELS[tile.type];
     if (zoneModels) {
@@ -687,18 +942,29 @@ export class CityRenderer {
 
   /** Instancia el modelo de un tile (clon de la plantilla), o null si no está disponible. */
   private buildModel(tile: Tile, x: number, z: number): THREE.Object3D | null {
-    const spec = this.modelFor(tile, x, z);
-    if (!spec) return null;
-    const tmpl = this.models.get(spec.file);
+    // Edificio dañado: se muestra la ruina genérica (si su modelo cargó).
+    let file: string;
+    let rotY = 0;
+    if (tile.damaged) {
+      // Ruina por tamaño (`building_burnt_2/_3`) si existe; si no, escala la de 1×1.
+      const sized = `${DAMAGED_MODEL}_${tile.size}`;
+      file = tile.size > 1 && this.models.has(sized) ? sized : DAMAGED_MODEL;
+    } else {
+      const spec = this.modelFor(tile, x, z);
+      if (!spec) return null;
+      file = spec.file;
+      rotY = spec.rotY;
+    }
+    const tmpl = this.models.get(file);
     if (!tmpl) return null; // todavía no cargó → cubo de respaldo
 
     const inst = tmpl.clone(true);
     const size = tile.size;
-    const fullTile = tile.type === TileType.Road; // las calles cubren toda la casilla
+    const fullTile = !tile.damaged && tile.type === TileType.Road; // las calles cubren toda la casilla
     const base = fullTile ? this.grid.tileSize : this.grid.tileSize * 0.9;
     const footprint = base + (size - 1) * this.grid.tileSize;
     inst.scale.setScalar(footprint);
-    inst.rotation.y = spec.rotY;
+    inst.rotation.y = rotY;
 
     const cx = (tileCenterX(x, this.grid) + tileCenterX(x + size - 1, this.grid)) / 2;
     const cz = (tileCenterZ(z, this.grid) + tileCenterZ(z + size - 1, this.grid)) / 2;
@@ -723,6 +989,34 @@ export class CityRenderer {
       }
     });
     if (isRoad) inst.userData = { roadMats, roadBase };
+    return inst;
+  }
+
+  /** Instancia el modelo de un terreno (playa), cubriendo la casilla. null si no aplica. */
+  private buildTerrainModel(terrain: TerrainKind, x: number, z: number): THREE.Object3D | null {
+    const file = TERRAIN_MODEL[terrain];
+    if (!file) return null;
+    const tmpl = this.models.get(file);
+    if (!tmpl) return null;
+    const inst = tmpl.clone(true);
+    if (terrain === 'mountain') {
+      // Más grandes que la casilla (se solapan → cadena continua) y con picos de
+      // distinta altura y rotación, para que parezca una cordillera y no cubos 1×1.
+      const h = (x * 7 + z * 13) % 5; // 0..4
+      const w = 1.5 * this.grid.tileSize;
+      inst.scale.set(w, (1.5 + h * 0.35) * this.grid.tileSize, w);
+      inst.rotation.y = ((x * 3 + z) % 4) * (Math.PI / 2);
+    } else {
+      inst.scale.setScalar(this.grid.tileSize);
+    }
+    inst.position.set(tileCenterX(x, this.grid), 0, tileCenterZ(z, this.grid));
+    inst.userData = { terrain: true }; // no es edificio: no recibe glow de selección
+    inst.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        o.receiveShadow = true;
+        if (terrain === 'mountain') o.castShadow = true;
+      }
+    });
     return inst;
   }
 
@@ -791,13 +1085,24 @@ export class CityRenderer {
     if (model) {
       this.group.add(model);
       this.meshes.set(k, model);
-      if (SMOKING.has(tile.type)) {
+      if (SMOKING.has(tile.type) && !tile.damaged) {
         // Chimenea en la cima del modelo (un toque adentro del borde superior).
         const top = new THREE.Box3().setFromObject(model).max.y;
         this.smoke.setEmitter(k, model.position.x, top * 0.92, model.position.z);
       }
       this.cascadeRoads(x, z, cascade);
       return;
+    }
+
+    // 1b) Terreno con modelo propio (playa con beach_sand).
+    if (tile.type === TileType.Empty) {
+      const terrModel = this.buildTerrainModel(terrain, x, z);
+      if (terrModel) {
+        this.group.add(terrModel);
+        this.meshes.set(k, terrModel);
+        this.cascadeRoads(x, z, cascade);
+        return;
+      }
     }
 
     // 2) Cubo de respaldo (terreno natural, solares, obra, o modelo aún sin cargar).
@@ -927,8 +1232,8 @@ export class CityRenderer {
     const key = this.key(ax, az);
     const obj = this.meshes.get(key);
     if (!obj) return null;
-    const ud = obj.userData as { cube?: boolean; roadMats?: THREE.Material[] };
-    if (ud.cube || ud.roadMats) return null; // cubo plano (solar/terreno/obra) o calle → sin glow
+    const ud = obj.userData as { cube?: boolean; roadMats?: THREE.Material[]; terrain?: boolean };
+    if (ud.cube || ud.roadMats || ud.terrain) return null; // cubo plano / calle / terreno → sin glow
     return { key, obj };
   }
 }

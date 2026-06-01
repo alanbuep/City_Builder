@@ -8,7 +8,7 @@
 import { TileType } from './types';
 
 /** Sobre qué métrica de la ciudad se mide un hito. */
-export type TechMetric = 'population' | 'industrialJobs' | 'money';
+export type TechMetric = 'population' | 'industrialJobs' | 'money' | 'science';
 
 export interface TechDef {
   id: string;
@@ -36,6 +36,11 @@ export const BASE_UNLOCKED: TileType[] = [
   TileType.PowerPlant,
   TileType.Park,
   TileType.Plaza,
+  // Paisaje: disponible desde el inicio para decorar libremente.
+  TileType.Tree,
+  TileType.Rock,
+  TileType.Bush,
+  TileType.Flowers,
 ];
 
 /** Hitos de progreso, en orden creciente de dificultad. */
@@ -57,6 +62,15 @@ export const TECHS: TechDef[] = [
     metric: 'population',
     target: 90,
     unlocks: [TileType.School, TileType.Clinic, TileType.Hospital, TileType.Market, TileType.Pharmacy, TileType.Burger, TileType.Bakery, TileType.IceCream],
+  },
+  {
+    id: 'renewables',
+    icon: '♻️',
+    name: 'Energías renovables',
+    desc: 'Solar, eólica e hidroeléctrica: energía limpia que no contamina la ciudad.',
+    metric: 'population',
+    target: 110,
+    unlocks: [TileType.SolarPlant, TileType.WindTurbine, TileType.HydroPlant],
   },
   {
     id: 'industry2',
@@ -86,13 +100,49 @@ export const TECHS: TechDef[] = [
     unlocks: [TileType.Museum, TileType.ShoppingMall, TileType.University, TileType.Church, TileType.Library, TileType.Restaurant, TileType.Boutique, TileType.Dealership, TileType.TramStop],
   },
   {
+    id: 'science',
+    icon: '🔬',
+    name: 'Investigación científica',
+    desc: 'Laboratorios y observatorios: empezá a generar puntos de ciencia para desbloquear lo más avanzado.',
+    metric: 'population',
+    target: 140,
+    unlocks: [TileType.ResearchLab, TileType.Observatory],
+  },
+  {
+    id: 'science2',
+    icon: '🧪',
+    name: 'Parque científico',
+    desc: 'Con ciencia acumulada se habilita el parque científico: más investigación y empleo limpio.',
+    metric: 'science',
+    target: 300,
+    unlocks: [TileType.SciencePark],
+  },
+  {
+    id: 'space',
+    icon: '🚀',
+    name: 'Programa espacial',
+    desc: 'El hito científico máximo: el Centro Espacial, orgullo de toda la metrópolis.',
+    metric: 'science',
+    target: 1500,
+    unlocks: [TileType.SpaceCenter],
+  },
+  {
+    id: 'hero',
+    icon: '🦸',
+    name: 'El Héroe',
+    desc: 'Tanta ciencia atrae a un héroe: construí su cuartel y protegerá la ciudad de las catástrofes.',
+    metric: 'science',
+    target: 3000,
+    unlocks: [TileType.HeroHQ, TileType.HeroBeacon, TileType.HeroStatue],
+  },
+  {
     id: 'leisure',
     icon: '🎡',
     name: 'Ocio y entretenimiento',
-    desc: 'Cines, parques de diversiones y casinos: diversión, empleo y renta.',
+    desc: 'Cines, parques de diversiones, casinos y circuito de carreras: diversión, empleo y renta.',
     metric: 'population',
     target: 250,
-    unlocks: [TileType.Cinema, TileType.AmusementPark, TileType.Casino],
+    unlocks: [TileType.Cinema, TileType.AmusementPark, TileType.Casino, TileType.RaceTrack, TileType.BalloonPort, TileType.AirshipDock],
   },
   {
     id: 'capital',
@@ -127,6 +177,7 @@ export const METRIC_LABEL: Record<TechMetric, string> = {
   population: 'Población',
   industrialJobs: 'Empleo industrial',
   money: 'Tesoro',
+  science: 'Ciencia',
 };
 
 /** Mapa rápido edificio → hito que lo desbloquea (para mostrar el requisito). */

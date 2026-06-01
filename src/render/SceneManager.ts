@@ -10,6 +10,7 @@ export class SceneManager {
   readonly camera: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
   readonly controls: OrbitControls;
+  private panLimit = 30; // cuánto se puede alejar el foco del centro (se ajusta al mapa)
 
   constructor(container: HTMLElement) {
     // --- Renderer ---
@@ -30,7 +31,7 @@ export class SceneManager {
       0.1,
       1000,
     );
-    this.camera.position.set(22, 26, 22);
+    this.camera.position.set(34, 40, 34);
 
     // --- Controles: orbitar / zoom / desplazar ---
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -39,7 +40,7 @@ export class SceneManager {
     this.controls.dampingFactor = 0.08;
     this.controls.maxPolarAngle = Math.PI / 2.2; // no bajar por debajo del suelo
     this.controls.minDistance = 5;
-    this.controls.maxDistance = 90;
+    this.controls.maxDistance = 110;
     // El click izquierdo lo reservamos para construir, así que la rotación va
     // al botón derecho y el desplazamiento al botón central.
     this.controls.mouseButtons = {
@@ -56,8 +57,8 @@ export class SceneManager {
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 150;
-    const s = 40;
+    sun.shadow.camera.far = 200;
+    const s = 56;
     sun.shadow.camera.left = -s;
     sun.shadow.camera.right = s;
     sun.shadow.camera.top = s;
@@ -73,9 +74,24 @@ export class SceneManager {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  /** Ajusta hasta dónde se puede desplazar el foco (≈ tamaño del mapa). */
+  setPanLimit(half: number): void {
+    this.panLimit = half;
+  }
+
   /** Se llama una vez por frame. */
   render(): void {
     this.controls.update();
+    // Clampea el foco para no poder pasear la cámara hasta el borde del mundo.
+    const L = this.panLimit;
+    const tx = Math.max(-L, Math.min(L, this.controls.target.x));
+    const tz = Math.max(-L, Math.min(L, this.controls.target.z));
+    if (tx !== this.controls.target.x || tz !== this.controls.target.z) {
+      this.camera.position.x += tx - this.controls.target.x;
+      this.camera.position.z += tz - this.controls.target.z;
+      this.controls.target.x = tx;
+      this.controls.target.z = tz;
+    }
     this.renderer.render(this.scene, this.camera);
   }
 }

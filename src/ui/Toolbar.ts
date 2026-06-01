@@ -1,13 +1,19 @@
-import { TileType, TILE_DEF } from '../sim/types';
+import { TileType, TILE_DEF, ResidentialStyle, RES_STYLE } from '../sim/types';
 import { TECH_BY_TYPE, METRIC_LABEL } from '../sim/Tech';
 
-/** Una herramienta: colocar un tipo de casilla, o "seleccionar". */
-export type Tool = TileType | 'select';
+/** Una herramienta: colocar un tipo de casilla, "seleccionar", o pintar terreno (agua/tierra). */
+export type Tool = TileType | 'select' | 'terrain_water' | 'terrain_land';
+
+/** ¿Es una herramienta de pintar terreno (ríos/lagos a mano)? */
+export function isPaintTool(tool: Tool): tool is 'terrain_water' | 'terrain_land' {
+  return tool === 'terrain_water' || tool === 'terrain_land';
+}
 
 interface ToolEntry {
   tool: Tool;
   label: string;
   desc: string;
+  style?: ResidentialStyle; // (residencial) estilo de barrio que pinta esta entrada
 }
 
 interface Category {
@@ -26,9 +32,19 @@ const CATEGORIES: Category[] = [
     ],
   },
   {
+    label: '🌊 Terreno',
+    tools: [
+      { tool: 'terrain_water', label: '💧 Agua / Río', desc: 'Pintá agua a mano (ríos, lagos, ensanchar la costa). Arrastrá para trazar. Deja orillas de arena solas. Solo sobre terreno libre (no bajo edificios). Las calles sobre agua se vuelven puente.' },
+      { tool: 'terrain_land', label: '🟩 Rellenar tierra', desc: 'Vuelve el agua/arena a tierra firme (borra ríos/lagos). Arrastrá.' },
+    ],
+  },
+  {
     label: '🏠 Residencial',
     tools: [
-      { tool: TileType.Residential, label: '🏠 Residencial', desc: 'Donde vive la gente. Es la única zona: crece con la demanda (barra R) y los servicios cercanos. El comercio y la industria ahora se colocan como edificios (no son zonas).' },
+      { tool: TileType.Residential, style: 'default', label: '🏠 Estándar', desc: 'Barrio clásico: crece con la demanda (barra R) y los servicios. El único que llega a RASCACIELOS (nivel 5). El comercio y la industria se colocan como edificios.' },
+      { tool: TileType.Residential, style: 'suburb', label: '🏡 Suburbio', desc: 'Casas bajas: poca densidad (tope nivel 2) pero barrio tranquilo. Para las afueras.' },
+      { tool: TileType.Residential, style: 'eco', label: '🌿 Eco', desc: 'Barrio ecológico: casi inmune a la contaminación y suma algo de valor del suelo. Densidad media (tope nivel 3).' },
+      { tool: TileType.Residential, style: 'luxury', label: '💎 Lujo', desc: 'Barrio premium: alta densidad por nivel e irradia mucho valor del suelo a los vecinos (tope nivel 3).' },
     ],
   },
   {
@@ -97,6 +113,9 @@ const CATEGORIES: Category[] = [
       { tool: TileType.PowerPlant, label: '⚡ Central eléctrica', desc: 'Edificio 2×2. Produce 400 de energía para toda la ciudad. Sin energía suficiente, las zonas no pasan de nivel 1.' },
       { tool: TileType.WaterTower, label: '💧 Torre de agua', desc: 'Produce 350 de agua. Junto al gas, hace falta para que las zonas lleguen al nivel máximo.' },
       { tool: TileType.GasPlant, label: '🔥 Planta de gas', desc: 'Produce 320 de gas. Junto al agua, hace falta para el nivel máximo de las zonas.' },
+      { tool: TileType.SolarPlant, label: '☀️ Planta solar', desc: 'Edificio 2×2. Energía LIMPIA: 220 de electricidad sin contaminar. Más cara por MW que el carbón, pero sin humo.' },
+      { tool: TileType.WindTurbine, label: '💨 Parque eólico', desc: 'Turbina 1×1: 150 de electricidad limpia, barata. Poné varias.' },
+      { tool: TileType.HydroPlant, label: '🌊 Represa hidroeléctrica', desc: 'Edificio 2×2. 380 de electricidad limpia. Hay que colocarla JUNTO AL AGUA (río o mar).' },
     ],
   },
   {
@@ -110,11 +129,31 @@ const CATEGORIES: Category[] = [
     ],
   },
   {
+    label: '🔬 Ciencia',
+    tools: [
+      { tool: TileType.ResearchLab, label: '🔬 Laboratorio', desc: 'Genera 4 🔬 de ciencia por mes (con energía) + 30 empleos limpios. La ciencia acumulada desbloquea lo más avanzado.' },
+      { tool: TileType.Observatory, label: '🔭 Observatorio', desc: 'Genera 5 🔬 por mes y sube el valor del suelo (radio 3). Necesita energía.' },
+      { tool: TileType.SciencePark, label: '🧪 Parque científico', desc: 'Edificio 2×2. Mucha ciencia (12 🔬/mes) + 100 empleos limpios + valor del suelo. Se desbloquea con ciencia acumulada.' },
+      { tool: TileType.SpaceCenter, label: '🚀 Centro espacial', desc: 'Edificio 3×3. El hito científico máximo: 30 🔬/mes, 150 empleos y gran prestigio (valor del suelo). Requiere un gran programa espacial.' },
+    ],
+  },
+  {
+    label: '🦸 Héroe',
+    tools: [
+      { tool: TileType.HeroHQ, label: '🦸 Cuartel del héroe', desc: 'Edificio 2×2. Mientras esté en pie, la ciudad tiene un héroe que apaga los incendios él solo y atrae prestigio. Se desbloquea con mucha ciencia.' },
+      { tool: TileType.HeroBeacon, label: '🔦 Señal del héroe', desc: 'Llama al héroe: prestigio y valor del suelo (radio 3).' },
+      { tool: TileType.HeroStatue, label: '🗽 Estatua del héroe', desc: 'Monumento al héroe: gran valor del suelo en un radio amplio.' },
+    ],
+  },
+  {
     label: '🎡 Ocio',
     tools: [
       { tool: TileType.Cinema, label: '🎬 Cine', desc: 'Empleos comerciales (25) + valor del suelo cercano.' },
       { tool: TileType.AmusementPark, label: '🎡 Parque de diversiones', desc: 'Edificio 2×2. Gran atractivo (radio 6) + 40 empleos comerciales.' },
       { tool: TileType.Casino, label: '🎰 Casino', desc: 'Edificio 2×2. 60 empleos comerciales, sube el valor del suelo y genera renta fija ($40/mes).' },
+      { tool: TileType.RaceTrack, label: '🏁 Circuito de carreras', desc: 'Edificio 3×3. Gran atracción + 40 empleos. Organiza días de evento: cada tanto hay un fin de semana de carreras con renta extra y autos dando vueltas. 🏎️' },
+      { tool: TileType.BalloonPort, label: '🎈 Globopuerto', desc: 'Atracción: de acá salen los globos aerostáticos que flotan sobre la ciudad. Sube el valor del suelo + empleos.' },
+      { tool: TileType.AirshipDock, label: '🛩️ Hangar de dirigibles', desc: 'Edificio 2×2. De acá sale el dirigible que sobrevuela la ciudad. Atracción turística.' },
     ],
   },
   {
@@ -142,6 +181,15 @@ const CATEGORIES: Category[] = [
       { tool: TileType.Monument, label: '🗽 Monumento', desc: 'Edificio 2×2. Hito de prestigio: muchísimo valor del suelo en un radio amplio.' },
     ],
   },
+  {
+    label: '🌳 Paisaje',
+    tools: [
+      { tool: TileType.Tree, label: '🌳 Árboles', desc: 'Decoración instantánea (sin calle). Sube un poco el valor del suelo. Cerca del mar salen palmeras. Arrastrá para plantar varios.' },
+      { tool: TileType.Bush, label: '🌿 Arbustos', desc: 'Vegetación baja y barata; suma un toque de valor del suelo.' },
+      { tool: TileType.Flowers, label: '🌸 Flores', desc: 'Cantero de flores: decora y aporta un poquito de valor del suelo.' },
+      { tool: TileType.Rock, label: '🪨 Rocas', desc: 'Decoración natural (sin efecto de valor del suelo).' },
+    ],
+  },
 ];
 
 /** Etiqueta de cada herramienta (para el indicador "Construyendo: …"). */
@@ -158,6 +206,7 @@ const TOOL_LABEL = (() => {
  */
 export class Toolbar {
   current: Tool = 'select';
+  currentResStyle: ResidentialStyle = 'default'; // estilo elegido para pintar residencial
 
   private container: HTMLElement;
   private currentEl: HTMLElement;
@@ -217,7 +266,7 @@ export class Toolbar {
   }
 
   private costOf(tool: Tool): number {
-    return tool === 'select' ? 0 : TILE_DEF[tool].cost;
+    return tool in TILE_DEF ? TILE_DEF[tool as TileType].cost : 0;
   }
 
   /** Actualiza qué edificios están desbloqueados (solo re-renderiza si cambió). */
@@ -232,13 +281,13 @@ export class Toolbar {
   }
 
   private isLocked(tool: Tool): boolean {
-    if (tool === 'select' || !this.unlocked) return false;
-    return !this.unlocked.has(tool);
+    if (!this.unlocked || !(tool in TILE_DEF)) return false; // select y terreno nunca se bloquean
+    return !this.unlocked.has(tool as TileType);
   }
 
   /** Texto del requisito de un edificio bloqueado. */
   private lockReason(tool: Tool): string {
-    const tech = tool === 'select' ? undefined : TECH_BY_TYPE.get(tool);
+    const tech = tool in TILE_DEF ? TECH_BY_TYPE.get(tool as TileType) : undefined;
     if (!tech) return 'Bloqueado';
     const target = tech.metric === 'money' ? `$${tech.target.toLocaleString('es')}` : `${tech.target}`;
     return `Se desbloquea con "${tech.name}" — ${METRIC_LABEL[tech.metric]} ≥ ${target}`;
@@ -274,7 +323,11 @@ export class Toolbar {
 
   /** Muestra qué herramienta está activa debajo de la barra de categorías. */
   private updateCurrentLabel(): void {
-    const label = TOOL_LABEL.get(this.current) ?? '🔍 Seleccionar';
+    const st = RES_STYLE[this.currentResStyle];
+    const label =
+      this.current === TileType.Residential
+        ? `${st.icon} Residencial ${st.label}`
+        : TOOL_LABEL.get(this.current) ?? '🔍 Seleccionar';
     this.currentEl.innerHTML = `<span style="opacity:.7">Activo:</span> ${label}`;
   }
 
@@ -290,11 +343,12 @@ export class Toolbar {
 
       const btn = document.createElement('button');
       btn.className = locked ? 'tool locked' : 'tool';
-      if (entry.tool === this.current && !locked) btn.classList.add('active');
+      const styleMatch = entry.style === undefined || entry.style === this.currentResStyle;
+      if (entry.tool === this.current && !locked && styleMatch) btn.classList.add('active');
       const right = locked ? '🔒' : cost > 0 ? `<span class="tool-cost">$${cost}</span>` : '';
       btn.innerHTML = `<span>${entry.label}</span>${right}`;
       if (locked) btn.title = this.lockReason(entry.tool);
-      else btn.addEventListener('click', () => this.select(entry.tool));
+      else btn.addEventListener('click', () => this.select(entry.tool, entry.style));
 
       const info = document.createElement('button');
       info.className = 'tool-info';
@@ -311,8 +365,9 @@ export class Toolbar {
     }
   }
 
-  private select(tool: Tool): void {
+  private select(tool: Tool, style?: ResidentialStyle): void {
     this.current = tool;
+    if (style !== undefined) this.currentResStyle = style;
     this.updateCurrentLabel();
     this.closePopup();
   }

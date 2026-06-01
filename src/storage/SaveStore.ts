@@ -6,7 +6,9 @@ import { SimSave } from '../sim/Simulation';
  * el formato cambie. Hoy guardamos en localStorage; este MISMO JSON es el que,
  * más adelante, subiríamos a la nube por usuario (sin rehacer nada).
  */
-export const SAVE_VERSION = 1;
+// v2: terreno nuevo (mar infinito, cordillera de punta a punta, parcelas). Las
+// partidas v1 (terreno viejo) se descartan al cargar y arranca una ciudad nueva.
+export const SAVE_VERSION = 2;
 
 export interface SaveData {
   version: number;

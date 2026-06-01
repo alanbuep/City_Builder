@@ -1,4 +1,4 @@
-import { TileType, Tile, TerrainKind, maxLevelOf } from './types';
+import { TileType, Tile, TerrainKind, ResidentialStyle, RES_STYLE, maxLevelOf } from './types';
 
 /** Una casilla construida, para guardar. Las vacías no se guardan. */
 export interface TileSave {
@@ -8,6 +8,8 @@ export interface TileSave {
   level: number;
   size: number;
   anchor: { x: number; z: number } | null;
+  damaged?: boolean; // ruina por catástrofe (opcional: partidas viejas no lo tienen)
+  style?: ResidentialStyle; // estilo del barrio residencial (opcional)
 }
 
 /** Una casilla con terreno no normal (agua/montaña), para guardar. */
@@ -23,7 +25,11 @@ export interface CitySave {
   height: number;
   tiles: TileSave[];
   terrain?: TerrainSave[]; // opcional: las partidas viejas no lo tienen (todo 'land')
+  parcels?: boolean[]; // territorio desbloqueado por parcela (opcional: viejas = todo abierto)
 }
+
+/** Lado (en casillas) de cada "parcela" de territorio que se desbloquea de a una. */
+export const PARCEL = 8;
 
 /**
  * El estado lógico de la ciudad: una cuadrícula de casillas.
@@ -42,6 +48,8 @@ export class City {
   private tiles: Tile[];
   private terrain: TerrainKind[];
   private dirty = new Set<number>();
+  // Territorio por parcelas: empieza con el centro abierto; el resto se desbloquea.
+  private parcelUnlocked: boolean[] = [];
 
   constructor(width = 32, height = 32) {
     this.width = width;
@@ -51,8 +59,106 @@ export class City {
       level: 0,
       anchor: null,
       size: 1,
+      damaged: false,
+      style: 'default',
     }));
     this.terrain = new Array(width * height).fill('land');
+    this.initParcels();
+  }
+
+  // --- Territorio por parcelas (se desbloquea de a una) ---
+
+  get parcelCols(): number {
+    return Math.ceil(this.width / PARCEL);
+  }
+  get parcelRows(): number {
+    return Math.ceil(this.height / PARCEL);
+  }
+
+  /**
+   * Estado inicial: casi todo el mapa abierto (parecido al original), bloqueando
+   * solo las 4 PARCELAS DE LAS ESQUINAS — que quedan como territorio a conquistar.
+   * En grillas chicas (≤ 2×2 parcelas) queda todo abierto.
+   */
+  private initParcels(): void {
+    const cols = this.parcelCols;
+    const rows = this.parcelRows;
+    this.parcelUnlocked = new Array(cols * rows).fill(true);
+    if (cols >= 3 && rows >= 3) {
+      for (const [px, pz] of [
+        [0, 0],
+        [cols - 1, 0],
+        [0, rows - 1],
+        [cols - 1, rows - 1],
+      ]) {
+        this.parcelUnlocked[pz * cols + px] = false;
+      }
+    }
+  }
+
+  private unlockAllParcels(): void {
+    this.parcelUnlocked.fill(true);
+  }
+
+  /** La parcela (px,pz) a la que pertenece una casilla. */
+  tileParcel(x: number, z: number): { px: number; pz: number } {
+    return { px: Math.floor(x / PARCEL), pz: Math.floor(z / PARCEL) };
+  }
+
+  /** ¿La casilla está en territorio desbloqueado (se puede construir)? */
+  isUnlocked(x: number, z: number): boolean {
+    if (!this.inBounds(x, z)) return false;
+    const { px, pz } = this.tileParcel(x, z);
+    return this.parcelUnlocked[pz * this.parcelCols + px];
+  }
+
+  isParcelUnlocked(px: number, pz: number): boolean {
+    if (px < 0 || pz < 0 || px >= this.parcelCols || pz >= this.parcelRows) return false;
+    return this.parcelUnlocked[pz * this.parcelCols + px];
+  }
+
+  /** ¿Se puede desbloquear esta parcela? (bloqueada y pegada a una ya abierta). */
+  parcelCanUnlock(px: number, pz: number): boolean {
+    if (this.isParcelUnlocked(px, pz)) return false;
+    if (px < 0 || pz < 0 || px >= this.parcelCols || pz >= this.parcelRows) return false;
+    return (
+      this.isParcelUnlocked(px - 1, pz) ||
+      this.isParcelUnlocked(px + 1, pz) ||
+      this.isParcelUnlocked(px, pz - 1) ||
+      this.isParcelUnlocked(px, pz + 1)
+    );
+  }
+
+  /** Abre una parcela y marca sus casillas para redibujar. */
+  unlockParcel(px: number, pz: number): void {
+    if (px < 0 || pz < 0 || px >= this.parcelCols || pz >= this.parcelRows) return;
+    this.parcelUnlocked[pz * this.parcelCols + px] = true;
+    const r = this.parcelRegion(px, pz);
+    for (let z = r.z; z < r.z + r.h; z++) {
+      for (let x = r.x; x < r.x + r.w; x++) this.dirty.add(this.index(x, z));
+    }
+  }
+
+  unlockedParcelCount(): number {
+    return this.parcelUnlocked.reduce((n, u) => n + (u ? 1 : 0), 0);
+  }
+
+  /** Región de casillas (clampeada al mapa) que ocupa una parcela. */
+  parcelRegion(px: number, pz: number): { x: number; z: number; w: number; h: number } {
+    const x = px * PARCEL;
+    const z = pz * PARCEL;
+    return { x, z, w: Math.min(PARCEL, this.width - x), h: Math.min(PARCEL, this.height - z) };
+  }
+
+  /** Regiones (de casillas) de todas las parcelas bloqueadas (para el render). */
+  lockedRegions(): Array<{ x: number; z: number; w: number; h: number }> {
+    const out: Array<{ x: number; z: number; w: number; h: number }> = [];
+    for (let pz = 0; pz < this.parcelRows; pz++) {
+      for (let px = 0; px < this.parcelCols; px++) {
+        if (!this.isParcelUnlocked(px, pz)) out.push(this.parcelRegion(px, pz));
+      }
+    }
+    return out;
   }
 
   inBounds(x: number, z: number): boolean {
@@ -72,9 +178,25 @@ export class City {
     return this.terrain[this.index(x, z)];
   }
 
-  /** ¿Se puede construir en esta casilla? (no en agua ni montaña). */
+  /** ¿Se puede construir en esta casilla? (sí en tierra y playa; no en agua ni montaña). */
   isBuildable(x: number, z: number): boolean {
-    return this.inBounds(x, z) && this.terrain[this.index(x, z)] === 'land';
+    if (!this.inBounds(x, z)) return false;
+    const t = this.terrain[this.index(x, z)];
+    return t === 'land' || t === 'beach';
+  }
+
+  /** ¿El footprint S×S toca agua en algún borde? (para represas/puertos que exigen mar). */
+  isNextToWater(x: number, z: number, size = 1): boolean {
+    for (let dz = -1; dz <= size; dz++) {
+      for (let dx = -1; dx <= size; dx++) {
+        const inFootprint = dx >= 0 && dx < size && dz >= 0 && dz < size;
+        if (inFootprint) continue; // solo el anillo de alrededor
+        const cx = x + dx;
+        const cz = z + dz;
+        if (this.inBounds(cx, cz) && this.terrain[this.index(cx, cz)] === 'water') return true;
+      }
+    }
+    return false;
   }
 
   /** Cambia el terreno de una casilla (y la marca para redibujar). */
@@ -106,8 +228,42 @@ export class City {
     tile.level = 0;
     tile.anchor = null;
     tile.size = 1;
+    tile.damaged = false;
+    tile.style = 'default';
     this.dirty.add(this.index(x, z));
     return true;
+  }
+
+  /** Cambia el estilo de un barrio residencial (recortando el nivel al tope del estilo). */
+  setResidentialStyle(x: number, z: number, style: ResidentialStyle): void {
+    if (!this.inBounds(x, z)) return;
+    const tile = this.tiles[this.index(x, z)];
+    if (tile.type !== TileType.Residential) return;
+    if (tile.style === style) return;
+    tile.style = style;
+    if (tile.level > RES_STYLE[style].maxLevel) tile.level = RES_STYLE[style].maxLevel;
+    this.dirty.add(this.index(x, z));
+  }
+
+  /**
+   * Marca (o cura) como DAÑADO el edificio que ocupa (x,z) — lo resuelve a su
+   * ancla, así un edificio multi-casilla queda dañado entero. Redibuja todo su
+   * footprint. Un edificio dañado no funciona hasta repararlo o demolerlo.
+   */
+  setDamaged(x: number, z: number, damaged: boolean): void {
+    if (!this.inBounds(x, z)) return;
+    const t = this.getTile(x, z);
+    const ax = t.anchor ? t.anchor.x : x;
+    const az = t.anchor ? t.anchor.z : z;
+    const anchor = this.getTile(ax, az);
+    if (anchor.type === TileType.Empty || anchor.damaged === damaged) return;
+    anchor.damaged = damaged;
+    const size = anchor.size;
+    for (let dz = 0; dz < size; dz++) {
+      for (let dx = 0; dx < size; dx++) {
+        if (this.inBounds(ax + dx, az + dz)) this.dirty.add(this.index(ax + dx, az + dz));
+      }
+    }
   }
 
   /**
@@ -130,6 +286,8 @@ export class City {
         tile.level = 0;
         tile.anchor = { x, z };
         tile.size = size;
+        tile.damaged = false;
+        tile.style = 'default';
         this.dirty.add(this.index(cx, cz));
       }
     }
@@ -150,6 +308,8 @@ export class City {
         t.level = 0;
         t.anchor = null;
         t.size = 1;
+        t.damaged = false;
+        t.style = 'default';
         this.dirty.add(this.index(ax + dx, az + dz));
       }
     }
@@ -195,12 +355,12 @@ export class City {
     const terrain: TerrainSave[] = [];
     this.forEach((tile, x, z) => {
       if (tile.type !== TileType.Empty) {
-        tiles.push({ x, z, type: tile.type, level: tile.level, size: tile.size, anchor: tile.anchor });
+        tiles.push({ x, z, type: tile.type, level: tile.level, size: tile.size, anchor: tile.anchor, damaged: tile.damaged, style: tile.style });
       }
       const k = this.terrain[this.index(x, z)];
       if (k !== 'land') terrain.push({ x, z, kind: k });
     });
-    return { width: this.width, height: this.height, tiles, terrain };
+    return { width: this.width, height: this.height, tiles, terrain, parcels: [...this.parcelUnlocked] };
   }
 
   /** Vacía toda la grilla y el terreno (y marca todo para redibujar). */
@@ -211,9 +371,12 @@ export class City {
       t.level = 0;
       t.anchor = null;
       t.size = 1;
+      t.damaged = false;
+      t.style = 'default';
       this.terrain[i] = 'land';
       this.dirty.add(i);
     }
+    this.initParcels(); // ciudad nueva: solo el centro abierto
   }
 
   /** Reemplaza el contenido por una ciudad guardada. */
@@ -226,12 +389,19 @@ export class City {
       tile.level = t.level;
       tile.size = t.size ?? 1;
       tile.anchor = t.anchor ?? null;
+      tile.damaged = t.damaged ?? false;
+      tile.style = t.style ?? 'default';
       this.dirty.add(this.index(t.x, t.z));
     }
     for (const t of data.terrain ?? []) {
       if (!this.inBounds(t.x, t.z)) continue;
       this.terrain[this.index(t.x, t.z)] = t.kind;
       this.dirty.add(this.index(t.x, t.z));
+    }
+    if (data.parcels && data.parcels.length === this.parcelUnlocked.length) {
+      this.parcelUnlocked = [...data.parcels];
+    } else {
+      this.unlockAllParcels(); // partidas viejas (sin parcelas) = todo abierto
     }
   }
 }

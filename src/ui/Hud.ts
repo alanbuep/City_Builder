@@ -15,7 +15,9 @@ const UTIL_INFO =
   'La energía hace falta para que las zonas pasen de nivel 1; agua y gas para que lleguen al nivel máximo.';
 const TECH_INFO =
   'Tecnología: tu ciudad desbloquea edificios nuevos al alcanzar hitos de población, ' +
-  'empleo industrial o tesoro. La barra muestra cuánto te falta para el próximo desbloqueo.';
+  'empleo industrial, tesoro o CIENCIA. La barra muestra cuánto te falta para el próximo desbloqueo. ' +
+  'La ciencia 🔬 la generan los laboratorios/observatorios/parque científico (necesitan energía) y se acumula ' +
+  'para habilitar lo más avanzado, como el Centro Espacial.';
 const MAT_INFO =
   'Materiales de tu ciudad: total = reserva inicial + lo guardado en los corralones. ' +
   'Cada corralón almacena hasta ' + CORRALON_CAP + ' de cada material. Conectá productoras por CALLE a un corralón para fabricar más. ' +
@@ -50,6 +52,8 @@ export class Hud {
   private covFoodEl!: HTMLElement;
   private matEls!: Record<Material, HTMLElement>;
   private matCapEl!: HTMLElement;
+  private scienceEl!: HTMLElement;
+  private territoryEl!: HTMLElement;
   private techCountEl!: HTMLElement;
   private techNextEl!: HTMLElement;
   private techBarWrap!: HTMLElement;
@@ -179,12 +183,16 @@ export class Hud {
     panel.className = 'panel';
     panel.innerHTML = `
       <div class="panel-head"><span style="opacity:0.85">🔬 Tecnología</span></div>
+      <div class="util-row"><span>🔬 Ciencia</span><span class="util-val" id="hud-science">—</span></div>
+      <div class="util-row"><span>🗝️ Territorio</span><span class="util-val" id="hud-territory">—</span></div>
       <div class="tech-count" id="tech-count">—</div>
       <div class="tech-next" id="tech-next"></div>
       <div class="tech-bar" id="tech-bar"><div class="tech-fill" id="tech-fill"></div></div>
     `;
     container.appendChild(panel);
     this.addInfo(panel.querySelector('.panel-head')!, TECH_INFO);
+    this.scienceEl = panel.querySelector('#hud-science')!;
+    this.territoryEl = panel.querySelector('#hud-territory')!;
     this.techCountEl = panel.querySelector('#tech-count')!;
     this.techNextEl = panel.querySelector('#tech-next')!;
     this.techBarWrap = panel.querySelector('#tech-bar')!;
@@ -307,6 +315,15 @@ export class Hud {
     }
     const n = stats.materials.corralones;
     this.matCapEl.textContent = n > 0 ? `${n} corralón${n > 1 ? 'es' : ''} · ${CORRALON_CAP} c/u` : 'sin corralón (solo reserva)';
+
+    const sc = stats.science;
+    this.scienceEl.innerHTML =
+      sc.rate > 0
+        ? `${sc.total.toLocaleString('es')} <span style="font-size:10px; color:#26c6da">(+${sc.rate}/mes)</span>`
+        : sc.total.toLocaleString('es');
+
+    const terr = stats.territory;
+    this.territoryEl.innerHTML = `${terr.unlocked}/${terr.total} <span style="font-size:10px; color:#ffd54f">${terr.tokens} 🗝️</span>`;
   }
 
   /** Actualiza el panel de tecnología: hitos logrados y el próximo desbloqueo. */

@@ -7,6 +7,7 @@ import {
   MAX_LEVEL,
   ROAD_MAX_LEVEL,
   ROAD_LEVEL_NAME,
+  RES_STYLE,
   MATERIALS,
   MATERIAL_ICON,
   MaterialBag,
@@ -39,10 +40,20 @@ const NAME: Record<TileType, string> = {
   [TileType.PowerPlant]: 'Central eléctrica ⚡',
   [TileType.WaterTower]: 'Torre de agua 💧',
   [TileType.GasPlant]: 'Planta de gas 🔥',
+  [TileType.SolarPlant]: 'Planta solar ☀️',
+  [TileType.WindTurbine]: 'Parque eólico 💨',
+  [TileType.HydroPlant]: 'Represa hidroeléctrica 🌊',
   [TileType.ShoppingMall]: 'Centro comercial 🛒',
   [TileType.Hotel]: 'Hotel 🏨',
   [TileType.OfficeTower]: 'Torre de oficinas 🏦',
   [TileType.TechPark]: 'Parque tecnológico 🔬',
+  [TileType.ResearchLab]: 'Laboratorio 🔬',
+  [TileType.Observatory]: 'Observatorio 🔭',
+  [TileType.SciencePark]: 'Parque científico 🧪',
+  [TileType.SpaceCenter]: 'Centro espacial 🚀',
+  [TileType.HeroHQ]: 'Cuartel del héroe 🦸',
+  [TileType.HeroBeacon]: 'Señal del héroe 🔦',
+  [TileType.HeroStatue]: 'Estatua del héroe 🗽',
   [TileType.SandPit]: 'Arenera ⏳',
   [TileType.CementPlant]: 'Cementera 🪨',
   [TileType.BrickKiln]: 'Ladrillería 🧱',
@@ -55,6 +66,13 @@ const NAME: Record<TileType, string> = {
   [TileType.Casino]: 'Casino 🎰',
   [TileType.Cinema]: 'Cine 🎬',
   [TileType.AmusementPark]: 'Parque de diversiones 🎡',
+  [TileType.RaceTrack]: 'Circuito de carreras 🏁',
+  [TileType.BalloonPort]: 'Globopuerto 🎈',
+  [TileType.AirshipDock]: 'Hangar de dirigibles 🛩️',
+  [TileType.Tree]: 'Árbol 🌳',
+  [TileType.Rock]: 'Roca 🪨',
+  [TileType.Bush]: 'Arbusto 🌿',
+  [TileType.Flowers]: 'Flores 🌸',
   [TileType.Church]: 'Iglesia ⛪',
   [TileType.Library]: 'Biblioteca 📚',
   [TileType.Monument]: 'Monumento 🗽',
@@ -87,6 +105,8 @@ const NAME: Record<TileType, string> = {
 
 export interface InspectorCallbacks {
   onUpgrade: () => void;
+  onRepair: () => void; // reparar un edificio dañado por una catástrofe
+  onUnlock: () => void; // desbloquear la parcela de territorio
   onDemolish: () => void;
   onStart: () => void; // dar el OK a una obra
   onExportKeep: (delta: number) => void; // ajustar el stock mínimo de exportación
@@ -103,6 +123,8 @@ export class Inspector {
   private bodyEl: HTMLElement;
   private startBtn: HTMLButtonElement;
   private upgradeBtn: HTMLButtonElement;
+  private repairBtn: HTMLButtonElement;
+  private unlockBtn: HTMLButtonElement;
   private demolishBtn: HTMLButtonElement;
   private exMinusBtn: HTMLButtonElement;
   private exPlusBtn: HTMLButtonElement;
@@ -122,6 +144,8 @@ export class Inspector {
         <button class="ctrl insp-exminus" title="Conservar menos (exportar más)">➖</button>
         <button class="ctrl insp-explus" title="Conservar más (exportar menos)">➕</button>
         <button class="ctrl insp-start"></button>
+        <button class="ctrl insp-repair"></button>
+        <button class="ctrl insp-unlock"></button>
         <button class="ctrl insp-upgrade"></button>
         <button class="ctrl insp-demolish">🧨 Demoler</button>
       </div>
@@ -132,6 +156,8 @@ export class Inspector {
     this.bodyEl = this.root.querySelector('.insp-body')!;
     this.startBtn = this.root.querySelector('.insp-start')!;
     this.upgradeBtn = this.root.querySelector('.insp-upgrade')!;
+    this.repairBtn = this.root.querySelector('.insp-repair')!;
+    this.unlockBtn = this.root.querySelector('.insp-unlock')!;
     this.demolishBtn = this.root.querySelector('.insp-demolish')!;
     this.exMinusBtn = this.root.querySelector('.insp-exminus')!;
     this.exPlusBtn = this.root.querySelector('.insp-explus')!;
@@ -139,6 +165,8 @@ export class Inspector {
     this.root.querySelector('.insp-close')!.addEventListener('click', () => callbacks.onClose());
     this.startBtn.addEventListener('click', () => callbacks.onStart());
     this.upgradeBtn.addEventListener('click', () => callbacks.onUpgrade());
+    this.repairBtn.addEventListener('click', () => callbacks.onRepair());
+    this.unlockBtn.addEventListener('click', () => callbacks.onUnlock());
     this.demolishBtn.addEventListener('click', () => callbacks.onDemolish());
     this.exMinusBtn.addEventListener('click', () => callbacks.onExportKeep(-20));
     this.exPlusBtn.addEventListener('click', () => callbacks.onExportKeep(20));
@@ -159,8 +187,19 @@ export class Inspector {
     }
     this.roadStretch = roadStretch;
     this.startBtn.style.display = 'none'; // solo aparece en las obras
+    this.repairBtn.style.display = 'none'; // solo en ruinas
+    this.unlockBtn.style.display = 'none'; // solo en territorio bloqueado
     this.exMinusBtn.style.display = 'none'; // solo en la terminal de exportación
     this.exPlusBtn.style.display = 'none';
+
+    if (info.locked) {
+      this.renderLocked(info);
+      return;
+    }
+    if (info.damaged) {
+      this.renderDamaged(info, money);
+      return;
+    }
 
     this.titleEl.textContent = NAME[info.type];
     const def = TILE_DEF[info.type];
@@ -174,6 +213,9 @@ export class Inspector {
       } else if (info.terrainKind === 'mountain') {
         this.titleEl.textContent = 'Montaña ⛰️';
         lines.push('Terreno montañoso. No se puede construir acá.');
+      } else if (info.terrainKind === 'beach') {
+        this.titleEl.textContent = 'Playa 🏖️';
+        lines.push('Arena junto al agua. Se puede construir, y es donde van las represas y los puertos. 🌊');
       } else {
         lines.push('Terreno libre. Construí algo aquí.');
       }
@@ -216,7 +258,8 @@ export class Inspector {
       lines.push(`Empleos comerciales: ${def.shopJobs ?? 0}`);
       lines.push('<i style="opacity:.8">Vende arena/cemento/ladrillo. Necesita un corralón conectado por calle.</i>');
     } else if (def.exportsMaterials) {
-      lines.push('Terminal de exportación: vende el excedente al exterior → renta. 🚢');
+      lines.push('Puerto / terminal de exportación: vende el excedente al exterior → renta. 🚢');
+      lines.push('<i style="opacity:.85; color:#4fc3f7">🌊 Es un puerto: hay que colocarlo junto al mar.</i>');
       lines.push(`Conserva <b>${info.exportKeep ?? 0}</b> de cada material; exporta el resto cada mes.`);
       lines.push('<i style="opacity:.8">Ajustá con ➖/➕. Necesita un corralón conectado por calle.</i>');
       this.exMinusBtn.style.display = '';
@@ -251,11 +294,40 @@ export class Inspector {
             ? '<i style="opacity:.8">⚠️ No alcanza para la población: construí más</i>'
             : '<i style="opacity:.8">Suma a la cobertura de toda la ciudad (mirá el HUD).</i>',
       );
+    } else if (def.hero) {
+      lines.push('🦸 <b>Cuartel del héroe.</b>');
+      lines.push('Mientras esté en pie, la ciudad tiene un héroe que <b>apaga los incendios</b> él solo.');
+      lines.push('También es un gran atractivo (sube el valor del suelo).');
+      lines.push('<i style="opacity:.8">⚠️ Si una catástrofe lo daña, el héroe desaparece hasta repararlo.</i>');
+    } else if (def.launchesBalloons || def.launchesBlimp) {
+      lines.push(def.launchesBlimp ? '🛩️ <b>Hangar de dirigibles.</b>' : '🎈 <b>Globopuerto.</b>');
+      lines.push(def.launchesBlimp ? 'De acá sale el dirigible que sobrevuela la ciudad.' : 'De acá salen los globos aerostáticos (uno por globopuerto).');
+      lines.push('Atracción turística: sube el valor del suelo + empleos. ✨');
+    } else if (def.raceTrack) {
+      lines.push('🏁 <b>Circuito de carreras.</b>');
+      lines.push('Gran atracción (sube el valor del suelo) + empleos.');
+      lines.push('Organiza <b>días de evento</b>: cada tanto hay un fin de semana de carreras que da <b style="color:#7CFC9A">renta extra</b> y llena la ciudad. 🏎️');
+    } else if (def.decoration) {
+      lines.push('🌳 Paisaje (decoración).');
+      if (def.amenity) lines.push('Sube un poco el valor del suelo alrededor. ✨');
+      else lines.push('Decora la ciudad.');
+    } else if (def.research) {
+      lines.push('Investigación científica. 🔬');
+      lines.push(`Produce <b>${def.research}</b> 🔬 de ciencia por mes.`);
+      if (def.jobs) lines.push(`Empleo limpio: ${def.jobs}`);
+      if (!info.cityHasPower) {
+        lines.push('<i style="opacity:.85; color:#ff8a80">⚡ Sin energía no investiga: la ciudad necesita más luz.</i>');
+      } else {
+        lines.push('<i style="opacity:.8">La ciencia se acumula y desbloquea lo más avanzado (mirá el HUD).</i>');
+      }
+      if (def.amenity) lines.push('También sube el valor del suelo cercano. ✨');
     } else if (def.produces) {
       const KIND: Record<string, string> = { power: 'energía ⚡', water: 'agua 💧', gas: 'gas 🔥' };
       lines.push(`Produce <b>${def.produces.amount}</b> de ${KIND[def.produces.kind]} para toda la ciudad.`);
       lines.push('Las zonas la necesitan para crecer a niveles altos.');
       if (def.pollution) lines.push(`<i style="opacity:.85; color:#ff8a80">🏭 Contamina (radio ${def.pollution.radius}): alejá las viviendas.</i>`);
+      else if (def.produces.kind === 'power') lines.push('<i style="opacity:.85; color:#7CFC9A">♻️ Energía limpia: no contamina.</i>');
+      if (def.needsWater) lines.push('<i style="opacity:.85; color:#4fc3f7">🌊 Hay que colocarla junto al agua.</i>');
     } else if (def.jobs) {
       lines.push('Industria (empleos industriales). 🏭');
       lines.push(`Empleos: ${def.jobs}`);
@@ -270,8 +342,12 @@ export class Inspector {
       lines.push('Sube el valor del suelo de las zonas cercanas. ✨');
     } else {
       const capLabel = info.type === TileType.Residential ? 'Habitantes' : 'Empleos';
-      const typeMax = maxLevelOf(info.type);
+      const typeMax = info.type === TileType.Residential ? RES_STYLE[info.style].maxLevel : maxLevelOf(info.type);
       const isTower = info.type === TileType.Residential && info.level > MAX_LEVEL;
+      if (info.type === TileType.Residential) {
+        const st = RES_STYLE[info.style];
+        lines.push(`Estilo: ${st.icon} <b>${st.label}</b> <span style="opacity:.7">(tope nivel ${st.maxLevel})</span>`);
+      }
       lines.push(`Nivel: ${info.level} / ${typeMax}${isTower ? ' — 🏙️ Rascacielos' : ''}`);
       lines.push(`${capLabel}: ${info.capacity}`);
       lines.push(`Acceso a calle: ${info.hasRoad ? 'Sí ✅' : 'No ⚠️'}`);
@@ -310,6 +386,55 @@ export class Inspector {
 
     this.updateUpgradeButton(info, money);
     this.demolishBtn.style.display = info.type === TileType.Empty ? 'none' : '';
+  }
+
+  /** Panel de territorio bloqueado: fichas disponibles + botón Desbloquear. */
+  private renderLocked(info: TileInfo): void {
+    this.titleEl.textContent = '🔒 Territorio bloqueado';
+    const lines = [
+      'Esta parcela todavía no es tuya. Desbloqueala para construir acá.',
+      `🗝️ Fichas: <b>${info.territoryTokens}</b> · cuesta <b>${info.unlockCost}</b>`,
+      '<i style="opacity:.8">Ganás fichas con cada hito tecnológico y cada catástrofe que superás.</i>',
+    ];
+    this.bodyEl.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
+    this.upgradeBtn.style.display = 'none';
+    this.startBtn.style.display = 'none';
+    this.repairBtn.style.display = 'none';
+    this.exMinusBtn.style.display = 'none';
+    this.exPlusBtn.style.display = 'none';
+    this.demolishBtn.style.display = 'none';
+    this.unlockBtn.style.display = '';
+    this.unlockBtn.textContent = `🗝️ Desbloquear (${info.unlockCost})`;
+    this.unlockBtn.disabled = !info.canUnlock;
+    this.unlockBtn.title = info.canUnlock
+      ? 'Abre esta parcela para construir'
+      : info.territoryTokens < info.unlockCost
+        ? 'No te alcanzan las fichas'
+        : 'Tiene que ser contigua a tu territorio';
+  }
+
+  /** Panel de un edificio dañado por una catástrofe: explicación + botón Reparar. */
+  private renderDamaged(info: TileInfo, money: number): void {
+    this.titleEl.textContent = `${NAME[info.type]} — en ruinas 🚧`;
+    const lines = [
+      '<b style="color:#ff8a80">Dañado por una catástrofe.</b>',
+      'No funciona (sin habitantes/empleos/cobertura) hasta repararlo.',
+    ];
+    if (info.size > 1) lines.push(`Ocupa ${info.size}×${info.size} casillas`);
+    this.bodyEl.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
+
+    this.upgradeBtn.style.display = 'none';
+    this.startBtn.style.display = 'none';
+    this.exMinusBtn.style.display = 'none';
+    this.exPlusBtn.style.display = 'none';
+    this.demolishBtn.style.display = '';
+
+    const cost = info.repairCost;
+    const affordable = money >= cost;
+    this.repairBtn.style.display = '';
+    this.repairBtn.textContent = `🛠️ Reparar ($${cost})`;
+    this.repairBtn.disabled = !affordable;
+    this.repairBtn.title = affordable ? 'Repara el edificio y lo reactiva' : 'Dinero insuficiente';
   }
 
   /** Panel de una obra en construcción: qué será, costo, progreso y botón Iniciar. */
@@ -351,6 +476,8 @@ export class Inspector {
     this.bodyEl.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
 
     this.upgradeBtn.style.display = 'none';
+    this.repairBtn.style.display = 'none';
+    this.unlockBtn.style.display = 'none';
     this.exMinusBtn.style.display = 'none';
     this.exPlusBtn.style.display = 'none';
     this.demolishBtn.style.display = '';

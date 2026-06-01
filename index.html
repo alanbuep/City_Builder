@@ -169,10 +169,10 @@
 
       /* --- Menú de catástrofes (borde izquierdo, centrado: no pisa los menús de la derecha) --- */
       #disasterbar { position: fixed; left: 12px; top: 50%; transform: translateY(-50%); z-index: 12; }
-      .disaster-menu { display: flex; flex-direction: column; gap: 6px; }
+      .disaster-menu { display: flex; flex-direction: column; gap: 6px; max-width: 168px; }
       .disaster-head { font-size: 12px; opacity: 0.85; }
-      .disaster-row { display: flex; gap: 6px; }
-      .disaster-row .ctrl { font-size: 12px; padding: 5px 9px; }
+      .disaster-row { display: flex; flex-wrap: wrap; gap: 6px; }
+      .disaster-row .ctrl { font-size: 13px; padding: 5px 9px; }
 
       /* --- Ayuda de controles (abajo a la izquierda) --- */
       #hint {

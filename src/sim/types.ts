@@ -27,12 +27,25 @@ export enum TileType {
   PowerPlant = 'power',
   WaterTower = 'water',
   GasPlant = 'gas',
+  // Energías renovables (NO contaminan):
+  SolarPlant = 'solar', // Planta solar
+  WindTurbine = 'wind', // Parque eólico
+  HydroPlant = 'hydro', // Represa hidroeléctrica (hay que ponerla junto al agua)
   // Comercios especializados (se desbloquean con tecnología): dan empleos comerciales.
   ShoppingMall = 'mall',
   Hotel = 'hotel',
   OfficeTower = 'office',
   // Industria especializada (empleo limpio):
   TechPark = 'techpark',
+  // Ciencia e investigación: generan "puntos de ciencia" que desbloquean lo más avanzado.
+  ResearchLab = 'research_lab', // Laboratorio de investigación
+  Observatory = 'observatory', // Observatorio
+  SciencePark = 'science_park', // Parque científico
+  SpaceCenter = 'space_center', // Centro espacial (el hito científico máximo)
+  // El héroe (estilo Superman): se desbloquea al final y mitiga catástrofes.
+  HeroHQ = 'hero_hq', // Cuartel del héroe (mientras esté en pie, la ciudad tiene héroe)
+  HeroBeacon = 'hero_beacon', // Señal para llamar al héroe (prestigio)
+  HeroStatue = 'hero_statue', // Estatua del héroe (gran prestigio / valor del suelo)
   // Cadena de materiales: productoras + almacén (corralón) + capstone tecnológico.
   SandPit = 'sandpit', // Arenera (arena)
   CementPlant = 'cement', // Cementera (arena → cemento)
@@ -48,6 +61,9 @@ export enum TileType {
   Casino = 'casino',
   Cinema = 'cinema',
   AmusementPark = 'amusement',
+  RaceTrack = 'race_track', // Circuito de carreras (gran atracción + días de evento)
+  BalloonPort = 'balloon_port', // Globopuerto: de acá salen los globos aerostáticos
+  AirshipDock = 'airship_dock', // Hangar de dirigibles: de acá sale el dirigible
   // Comunidad / hitos / transporte:
   Church = 'church',
   Library = 'library',
@@ -82,6 +98,11 @@ export enum TileType {
   SawMill = 'sawmill', // Aserradero (madera)
   SteelMill = 'steelmill', // Acería (acero)
   ElectronicsFactory = 'electronics', // Fábrica de electrónica (acero → electrónica)
+  // Decoración / paisaje (se plopean al instante, sin calle; suben un poco el valor del suelo):
+  Tree = 'tree',
+  Rock = 'rock',
+  Bush = 'bush',
+  Flowers = 'flowers',
   // Obra en construcción: ocupa el terreno hasta que se completa y aparece el edificio real.
   Construction = 'construction',
 }
@@ -92,7 +113,14 @@ export enum TileType {
  *  - 'water' = lago/río: NO se puede construir; sube el valor del suelo cercano.
  *  - 'mountain' = montaña: NO se puede construir.
  */
-export type TerrainKind = 'land' | 'water' | 'mountain';
+export type TerrainKind = 'land' | 'water' | 'mountain' | 'beach';
+
+/**
+ * Estilo de un barrio residencial. Cada uno usa su propia escalera de modelos y
+ * tiene un sesgo de jugabilidad (densidad, tope de nivel, sensibilidad a la
+ * contaminación). `default` es la torre clásica que llega a rascacielos.
+ */
+export type ResidentialStyle = 'default' | 'eco' | 'luxury' | 'suburb';
 
 /** Materiales de construcción (cadena de producción). */
 export type Material = 'arena' | 'cemento' | 'ladrillo' | 'madera' | 'acero' | 'electronica';
@@ -151,6 +179,11 @@ export interface Tile {
   // es el lado del footprint (válido en el ancla). 1×1 normal: anchor=null, size=1.
   anchor: { x: number; z: number } | null;
   size: number;
+  // Dañado por una catástrofe: el edificio sigue en pie como ruina (no funciona,
+  // no aporta nada) hasta que el jugador lo REPARE o lo demuela. Vive en el ancla.
+  damaged: boolean;
+  // Estilo del barrio (solo aplica a Residential): cambia densidad, tope y modelos.
+  style: ResidentialStyle;
 }
 
 /** Influencia radial que emite un edificio (amenidad o servicio). */
@@ -185,6 +218,13 @@ export interface TileDef {
   food?: Influence; // suma "cobertura de comida" (cafés/restaurantes/mercados)
   transit?: Influence; // alivia el tráfico de las calles cercanas (transporte público)
   pollution?: { radius: number; strength: number }; // contaminación: baja el valor del suelo y frena el crecimiento en su área cuadrada
+  research?: number; // puntos de ciencia que produce por mes (laboratorios/observatorios/etc.) — necesita energía
+  hero?: boolean; // mientras este edificio esté en pie (sano), la ciudad tiene héroe (mitiga catástrofes)
+  needsWater?: boolean; // solo se puede colocar junto al agua (represas, puertos)
+  decoration?: boolean; // paisaje: se plopea al instante, sin calle ni obra (árboles, rocas…)
+  raceTrack?: boolean; // circuito de carreras: organiza "días de evento" que dan renta extra
+  launchesBalloons?: boolean; // globopuerto: de acá salen los globos aerostáticos (ambiente)
+  launchesBlimp?: boolean; // hangar: de acá sale el dirigible (ambiente)
   income?: number; // renta fija mensual que genera (p. ej. casino)
   produces?: Production; // genera un servicio básico para toda la ciudad (luz/agua/gas)
   // --- Cadena de materiales ---
@@ -221,10 +261,26 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.WaterTower]: { cost: 300, color: 0x29b6f6, height: 1.3, upkeep: 4, produces: { kind: 'water', amount: 350 }, build: { cemento: 14, ladrillo: 8 } },
   [TileType.GasPlant]: { cost: 350, color: 0xff7043, height: 1.2, upkeep: 4, produces: { kind: 'gas', amount: 320 }, pollution: { radius: 3, strength: 0.6 }, build: { cemento: 14, ladrillo: 10 } },
 
+  // Renovables: energía limpia (NO contaminan). La hidro necesita agua al lado.
+  [TileType.SolarPlant]: { cost: 450, color: 0x42a5f5, height: 0.4, upkeep: 5, size: 2, produces: { kind: 'power', amount: 220 }, build: { cemento: 18, acero: 12, electronica: 8 } },
+  [TileType.WindTurbine]: { cost: 250, color: 0xeceff1, height: 2.4, upkeep: 3, produces: { kind: 'power', amount: 150 }, build: { acero: 10, electronica: 4 } },
+  [TileType.HydroPlant]: { cost: 600, color: 0x4fc3f7, height: 1.4, upkeep: 6, size: 2, produces: { kind: 'power', amount: 380 }, needsWater: true, build: { cemento: 40, acero: 20 } },
+
   [TileType.ShoppingMall]: { cost: 400, color: 0x00897b, height: 1.1, upkeep: 5, size: 2, shopJobs: 70, amenity: { radius: 3, strength: 0.4 }, build: { ladrillo: 30, cemento: 20 } },
   [TileType.Hotel]: { cost: 450, color: 0xd81b60, height: 1.8, upkeep: 5, size: 2, shopJobs: 50, amenity: { radius: 5, strength: 0.8 }, build: { ladrillo: 28, cemento: 20, madera: 12 } },
   [TileType.OfficeTower]: { cost: 500, color: 0x3949ab, height: 2.6, upkeep: 6, shopJobs: 100, build: { cemento: 25, ladrillo: 18, madera: 8 } },
   [TileType.TechPark]: { cost: 700, color: 0x00acc1, height: 1.0, upkeep: 7, size: 2, jobs: 150, amenity: { radius: 3, strength: 0.5 }, build: { ladrillo: 28, cemento: 20, madera: 12 } },
+
+  // Ciencia e investigación: producen puntos de ciencia (con energía). Algunos dan empleo limpio + valor del suelo.
+  [TileType.ResearchLab]: { cost: 300, color: 0x26c6da, height: 1.0, upkeep: 4, jobs: 30, research: 4, amenity: { radius: 2, strength: 0.3 }, build: { cemento: 12, ladrillo: 10 } },
+  [TileType.Observatory]: { cost: 350, color: 0x5c6bc0, height: 1.3, upkeep: 4, research: 5, amenity: { radius: 3, strength: 0.5 }, build: { cemento: 10, ladrillo: 8, acero: 4 } },
+  [TileType.SciencePark]: { cost: 700, color: 0x7e57c2, height: 1.1, upkeep: 7, size: 2, jobs: 100, research: 12, amenity: { radius: 3, strength: 0.5 }, build: { cemento: 24, ladrillo: 18, electronica: 6 } },
+  [TileType.SpaceCenter]: { cost: 1500, color: 0xeceff1, height: 1.8, upkeep: 14, size: 3, jobs: 150, research: 30, amenity: { radius: 6, strength: 1.2 }, build: { cemento: 60, acero: 40, electronica: 25 } },
+
+  // El héroe: el cuartel (HeroHQ) le da a la ciudad un héroe que apaga incendios solo.
+  [TileType.HeroHQ]: { cost: 2000, color: 0x1e88e5, height: 1.8, upkeep: 12, size: 2, hero: true, amenity: { radius: 5, strength: 1.0 }, build: { cemento: 50, acero: 30, electronica: 20 } },
+  [TileType.HeroBeacon]: { cost: 400, color: 0xffd54f, height: 1.2, upkeep: 3, amenity: { radius: 3, strength: 0.5 }, build: { acero: 8, electronica: 4 } },
+  [TileType.HeroStatue]: { cost: 800, color: 0xb0bec5, height: 2.0, upkeep: 4, amenity: { radius: 5, strength: 1.2 }, build: { cemento: 30, acero: 10 } },
 
   [TileType.SandPit]: { cost: 150, color: 0xd2b48c, height: 0.6, upkeep: 2, jobs: 10, makes: { material: 'arena', amount: 16 } },
   [TileType.CementPlant]: { cost: 250, color: 0x90a4ae, height: 1.1, upkeep: 3, jobs: 15, pollution: { radius: 3, strength: 0.6 }, needsMaterial: { material: 'arena', amount: 6 }, makes: { material: 'cemento', amount: 4 } },
@@ -240,6 +296,9 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Casino]: { cost: 600, color: 0xffca28, height: 1.2, upkeep: 8, size: 2, shopJobs: 60, amenity: { radius: 3, strength: 0.5 }, income: 40, build: { cemento: 28, ladrillo: 24 } },
   [TileType.Cinema]: { cost: 200, color: 0x5c6bc0, height: 0.9, upkeep: 3, shopJobs: 25, amenity: { radius: 3, strength: 0.5 }, build: { ladrillo: 12, cemento: 6 } },
   [TileType.AmusementPark]: { cost: 500, color: 0xec407a, height: 1.1, upkeep: 6, size: 2, shopJobs: 40, amenity: { radius: 6, strength: 1.2 }, build: { ladrillo: 30, madera: 18 } },
+  [TileType.RaceTrack]: { cost: 900, color: 0x37474f, height: 0.4, upkeep: 8, size: 3, shopJobs: 40, raceTrack: true, amenity: { radius: 6, strength: 1.0 }, build: { cemento: 50, acero: 20 } },
+  [TileType.BalloonPort]: { cost: 220, color: 0xff8a65, height: 0.8, upkeep: 3, shopJobs: 8, launchesBalloons: true, amenity: { radius: 3, strength: 0.5 }, build: { cemento: 8, ladrillo: 6 } },
+  [TileType.AirshipDock]: { cost: 450, color: 0x90a4ae, height: 1.9, upkeep: 4, size: 2, shopJobs: 10, launchesBlimp: true, amenity: { radius: 4, strength: 0.6 }, build: { cemento: 18, acero: 10 } },
 
   [TileType.Church]: { cost: 250, color: 0xefebe9, height: 1.3, upkeep: 3, amenity: { radius: 4, strength: 0.7 }, build: { ladrillo: 15, madera: 10 } },
   [TileType.Library]: { cost: 300, color: 0x795548, height: 1.0, upkeep: 4, education: { radius: 6, strength: 1.2, capacity: 500 }, build: { ladrillo: 15, madera: 8 } },
@@ -251,7 +310,7 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.MetroStation]: { cost: 650, color: 0x283593, height: 1.0, upkeep: 7, size: 2, transit: { radius: 8, strength: 1.4, capacity: 1200 }, build: { cemento: 35, ladrillo: 25, acero: 12 } },
 
   [TileType.Hardware]: { cost: 250, color: 0xff8f00, height: 0.9, upkeep: 3, shopJobs: 20, sellsMaterials: true },
-  [TileType.ExportTerminal]: { cost: 500, color: 0x455a64, height: 0.9, upkeep: 5, size: 2, shopJobs: 15, exportsMaterials: true },
+  [TileType.ExportTerminal]: { cost: 500, color: 0x455a64, height: 0.9, upkeep: 5, size: 2, shopJobs: 15, exportsMaterials: true, needsWater: true },
 
   [TileType.Cafe]: { cost: 120, color: 0x6d4c41, height: 0.7, upkeep: 2, shopJobs: 8, food: { radius: 4, strength: 0.6, capacity: 250 }, amenity: { radius: 2, strength: 0.3 }, build: { ladrillo: 4, madera: 6 } },
   [TileType.Diner]: { cost: 180, color: 0xf4511e, height: 0.8, upkeep: 3, shopJobs: 15, food: { radius: 5, strength: 0.9, capacity: 400 }, amenity: { radius: 2, strength: 0.3 }, build: { ladrillo: 8, madera: 5 } },
@@ -275,6 +334,12 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Bank]: { cost: 400, color: 0xc9b037, height: 1.2, upkeep: 4, shopJobs: 30, income: 30, build: { cemento: 15, ladrillo: 10 } },
   [TileType.GasStation]: { cost: 250, color: 0xef5350, height: 0.5, upkeep: 3, shopJobs: 12, income: 20, build: { cemento: 8, ladrillo: 5 } },
   [TileType.Dealership]: { cost: 450, color: 0x7986cb, height: 0.9, upkeep: 5, size: 2, shopJobs: 50, amenity: { radius: 2, strength: 0.2 }, build: { cemento: 20, ladrillo: 18, madera: 10 } },
+
+  // Paisaje (decoración): barato, instantáneo, sin calle. Sube un poco el valor del suelo.
+  [TileType.Tree]: { cost: 20, color: 0x2e7d32, height: 0.6, decoration: true, amenity: { radius: 1, strength: 0.15 } },
+  [TileType.Rock]: { cost: 10, color: 0x9e9e9e, height: 0.4, decoration: true },
+  [TileType.Bush]: { cost: 12, color: 0x66bb6a, height: 0.3, decoration: true, amenity: { radius: 1, strength: 0.1 } },
+  [TileType.Flowers]: { cost: 10, color: 0xec407a, height: 0.15, decoration: true, amenity: { radius: 1, strength: 0.1 } },
 
   [TileType.Construction]: { cost: 0, color: 0xffb74d, height: 0.3 }, // cartel/andamio de obra
 };
@@ -307,14 +372,31 @@ export function maxLevelOf(type: TileType): number {
 export const RES_CAPACITY = [0, 10, 22, 40, 75, 130];
 
 /**
+ * Sesgo de cada estilo residencial:
+ *  - `capMul`: multiplica los habitantes por nivel (densidad).
+ *  - `maxLevel`: tope estructural (solo `default` llega a rascacielos).
+ *  - `pollutionMul`: cuánto le afecta la contaminación (eco = casi inmune).
+ *  - `landValue`: valor del suelo que IRRADIA a los vecinos (lujo = barrio premium).
+ */
+export const RES_STYLE: Record<
+  ResidentialStyle,
+  { capMul: number; maxLevel: number; pollutionMul: number; landValue: number; label: string; icon: string }
+> = {
+  default: { capMul: 1.0, maxLevel: RES_MAX_LEVEL, pollutionMul: 1.0, landValue: 0, label: 'Estándar', icon: '🏠' },
+  eco: { capMul: 0.85, maxLevel: 3, pollutionMul: 0.4, landValue: 0.2, label: 'Eco', icon: '🌿' },
+  luxury: { capMul: 1.3, maxLevel: 3, pollutionMul: 1.0, landValue: 0.5, label: 'Lujo', icon: '💎' },
+  suburb: { capMul: 0.6, maxLevel: 2, pollutionMul: 1.0, landValue: 0.1, label: 'Suburbio', icon: '🏡' },
+};
+
+/**
  * Capacidad de una casilla: habitantes (residencial) o empleos (comercial /
  * industrial), según su nivel. El resto no aporta.
  */
-export function capacityOf(type: TileType, level: number): number {
+export function capacityOf(type: TileType, level: number, style: ResidentialStyle = 'default'): number {
   if (level <= 0) return 0;
   switch (type) {
     case TileType.Residential:
-      return RES_CAPACITY[Math.min(level, RES_CAPACITY.length - 1)];
+      return Math.round(RES_CAPACITY[Math.min(level, RES_CAPACITY.length - 1)] * RES_STYLE[style].capMul);
     case TileType.Commercial:
       return level * 6;
     case TileType.Industrial:
@@ -322,4 +404,9 @@ export function capacityOf(type: TileType, level: number): number {
     default:
       return 0;
   }
+}
+
+/** Costo de reparar un edificio dañado por una catástrofe (fracción de su costo). */
+export function repairCostOf(type: TileType): number {
+  return Math.max(10, Math.round(TILE_DEF[type].cost * 0.4));
 }

@@ -6,9 +6,12 @@ import {
   isZone,
   capacityOf,
   maxLevelOf,
+  repairCostOf,
+  RES_STYLE,
   Material,
   MaterialBag,
   TerrainKind,
+  ResidentialStyle,
   MAX_LEVEL,
   ROAD_MAX_LEVEL,
   ROAD_CAPACITY,
@@ -53,6 +56,10 @@ export interface CityStats {
     education: number;
     food: number;
   };
+  science: { total: number; rate: number }; // puntos de ciencia acumulados + ritmo/mes
+  hero: { active: boolean }; // ¿la ciudad tiene héroe (cuartel sano)?
+  race: { active: boolean; tracks: number }; // ¿hay carrera en curso? + cuántos circuitos
+  territory: { tokens: number; unlocked: number; total: number }; // fichas + parcelas abiertas/total
 }
 
 /** Detalle de UNA casilla, para el panel inspector. */
@@ -61,6 +68,13 @@ export interface TileInfo {
   level: number;
   size: number; // lado del footprint (1 = una casilla)
   terrainKind: TerrainKind; // tierra / agua / montaña
+  style: ResidentialStyle; // estilo del barrio (solo residencial)
+  damaged: boolean; // ruina por catástrofe (se puede reparar)
+  repairCost: number; // costo de repararla (si está dañada)
+  locked: boolean; // territorio bloqueado (hay que desbloquear la parcela)
+  unlockCost: number; // fichas 🗝️ para abrir esta parcela
+  territoryTokens: number; // fichas disponibles
+  canUnlock: boolean; // ¿se puede abrir ya? (contigua a lo abierto + fichas suficientes)
   capacity: number;
   hasRoad: boolean;
   value: number; // valor del suelo (amenidades)
@@ -140,6 +154,9 @@ export interface SimSave {
   month: number;
   mode: GameMode;
   unlocked: string[]; // ids de tecnologías ya desbloqueadas
+  science?: number; // puntos de ciencia acumulados (opcional: partidas viejas no lo tienen)
+  disastersSurvived?: number; // catástrofes superadas (fichas de territorio)
+  territorySpent?: number; // fichas de territorio ya gastadas
   materials?: MaterialsSave; // stock de materiales (opcional: partidas viejas no lo tienen)
   construction?: Construction[]; // obras en curso (opcional)
   disasters?: DisasterSave; // catástrofes en curso (opcional)
@@ -176,6 +193,9 @@ const COVERAGE_FOR_L3 = 0.9;
 const WELLBEING_GROWTH = 0.5; // cuánto acelera el crecimiento el bienestar (educación + salud)
 const TRANSIT_MAX_RELIEF = 0.7; // el transporte público puede quitar hasta este % del tráfico de una zona
 const POLLUTION_BLOCK = 0.6; // contaminación a partir de la cual una casilla no sube de nivel 1
+const RACE_DURATION = 2; // meses que dura un fin de semana de carreras
+const RACE_INTERVAL = 10; // meses entre eventos de carrera
+const RACE_INCOME = 150; // renta extra por mes (× circuitos) mientras hay carrera
 const WATER_AMENITY_RADIUS = 2; // las casillas junto al agua suben de valor (vista al lago/río)
 const WATER_AMENITY_STRENGTH = 0.35;
 // Rascacielos residenciales (niveles 4-5): además del nivel 3, exigen barrio
@@ -231,6 +251,24 @@ export class Simulation {
   healthCoverage = 0; // hospital / clínica / farmacia
   educationCoverage = 0; // escuela / universidad / biblioteca
   foodCoverage = 0; // cafés / restaurantes / locales de comida
+
+  // Ciencia: puntos acumulados (desbloquean lo más avanzado) + ritmo por mes.
+  science = 0;
+  researchRate = 0; // puntos de ciencia que la ciudad genera por mes (con energía)
+
+  // El héroe: true si hay un cuartel (HeroHQ) sano. Mientras tanto, mitiga catástrofes.
+  hasHero = false;
+
+  // Territorio: fichas 🗝️ (de hitos tecnológicos + desastres superados) para abrir parcelas.
+  disastersSurvived = 0; // catástrofes que atravesó la ciudad
+  private territorySpent = 0; // fichas ya gastadas abriendo territorio
+
+  // Circuitos de carrera: organizan "días de evento" que dan renta extra y atraen gente.
+  raceTracks = 0; // circuitos sanos en la ciudad
+  raceActive = false; // ¿hay una carrera en curso este mes?
+  private raceMonthsLeft = 0; // meses que dura el evento actual
+  private raceCooldown = 0; // meses hasta el próximo evento
+  private justStartedRace = false; // para avisar (toast) cuando arranca una carrera
   private securityCap = 0; // capacidad total instalada de cada categoría (para el inspector)
   private healthCap = 0;
   private educationCap = 0;
@@ -270,6 +308,7 @@ export class Simulation {
 
   tick(): void {
     this.advanceConstruction();
+    this.disasters.heroActive = this.hasHero; // el héroe (si lo hay) ayuda a apagar incendios
     this.disasters.tick(); // los incendios crecen/se propagan/destruyen antes de recontar
     this.recount();
     this.computeDemographics();
@@ -280,6 +319,8 @@ export class Simulation {
     this.recount();
     this.computeDemographics();
     this.materials.tick(this.city, this.hasPower);
+    this.science += this.researchRate; // la ciencia se acumula (mueve los hitos científicos)
+    this.advanceRaces(); // días de evento de carrera (renta extra mientras dura)
     this.applyEconomy();
     this.evaluateTech(false);
     this.month++;
@@ -427,6 +468,52 @@ export class Simulation {
     return this.beginZoneConstruction(x, z, false);
   }
 
+  /**
+   * Repara un edificio dañado por una catástrofe: cobra el costo de reparación y
+   * lo vuelve a poner en funcionamiento. Devuelve false si no está dañado o si no
+   * alcanza el dinero.
+   */
+  repair(x: number, z: number): boolean {
+    const tile = this.city.getTile(x, z);
+    const ax = tile.anchor ? tile.anchor.x : x;
+    const az = tile.anchor ? tile.anchor.z : z;
+    const anchor = this.city.getTile(ax, az);
+    if (!anchor.damaged) return false;
+    const cost = repairCostOf(anchor.type);
+    if (this.money < cost) return false;
+    this.money -= cost;
+    this.city.setDamaged(ax, az, false);
+    return true;
+  }
+
+  // --- Territorio (parcelas que se desbloquean con fichas) ---
+
+  /** Registra que ocurrió una catástrofe (suma una ficha de territorio por superarla). */
+  recordDisaster(): void {
+    this.disastersSurvived++;
+  }
+
+  /** Fichas 🗝️ disponibles: hitos tecnológicos + catástrofes superadas − ya gastadas. */
+  territoryTokens(): number {
+    return this.unlocked.size + this.disastersSurvived - this.territorySpent;
+  }
+
+  /** Costo (en fichas) de abrir la próxima parcela: sube con cada expansión. */
+  territoryUnlockCost(): number {
+    return Math.max(1, this.city.unlockedParcelCount() - 3);
+  }
+
+  /** Abre la parcela de (x,z) si es contigua a lo abierto y alcanzan las fichas. */
+  unlockTerritory(x: number, z: number): boolean {
+    const { px, pz } = this.city.tileParcel(x, z);
+    if (!this.city.parcelCanUnlock(px, pz)) return false;
+    const cost = this.territoryUnlockCost();
+    if (this.territoryTokens() < cost) return false;
+    this.city.unlockParcel(px, pz);
+    this.territorySpent += cost;
+    return true;
+  }
+
   inspect(x: number, z: number): TileInfo {
     const tile = this.city.getTile(x, z);
     const def = TILE_DEF[tile.type];
@@ -457,13 +544,24 @@ export class Simulation {
       canUpgrade = tile.level < maxLevelOf(tile.type) && hasRoad && tile.level + 1 <= maxLevel;
       upgradeCost = UPGRADE_BASE_COST * (tile.level + 1);
     }
+    if (tile.damaged) canUpgrade = false; // una ruina se repara, no se mejora
 
     return {
       type: tile.type,
       level: tile.level,
       size: tile.size,
       terrainKind: this.city.getTerrain(x, z),
-      capacity: capacityOf(tile.type, tile.level),
+      style: tile.style,
+      damaged: tile.damaged,
+      repairCost: repairCostOf(tile.type),
+      locked: !this.city.isUnlocked(x, z),
+      unlockCost: this.territoryUnlockCost(),
+      territoryTokens: this.territoryTokens(),
+      canUnlock:
+        !this.city.isUnlocked(x, z) &&
+        this.city.parcelCanUnlock(this.city.tileParcel(x, z).px, this.city.tileParcel(x, z).pz) &&
+        this.territoryTokens() >= this.territoryUnlockCost(),
+      capacity: capacityOf(tile.type, tile.level, tile.style),
       hasRoad,
       value: this.desirability[i],
       pollution: this.pollution[i],
@@ -547,7 +645,7 @@ export class Simulation {
         return;
       }
       // Zonas que podrían subir de nivel: sugerir solo en modo Constructor (en auto crecen solas).
-      if (this.mode === 'manual' && isZone(tile.type) && tile.level > 0 && tile.level < maxLevelOf(tile.type)) {
+      if (this.mode === 'manual' && isZone(tile.type) && !tile.damaged && tile.level > 0 && tile.level < maxLevelOf(tile.type)) {
         if (this.city.hasRoadAccess(x, z) && tile.level < this.maxLevelFor(x, z)) {
           out.push({ x, z, kind: 'upgrade' });
         }
@@ -598,6 +696,9 @@ export class Simulation {
       month: this.month,
       mode: this.mode,
       unlocked: [...this.unlocked],
+      science: this.science,
+      disastersSurvived: this.disastersSurvived,
+      territorySpent: this.territorySpent,
       materials: this.materials.serialize(),
       construction: [...this.sites.values()],
       disasters: this.disasters.serialize(),
@@ -609,6 +710,9 @@ export class Simulation {
     this.month = data.month;
     this.mode = data.mode;
     this.unlocked = new Set(data.unlocked ?? []);
+    this.science = data.science ?? 0;
+    this.disastersSurvived = data.disastersSurvived ?? 0;
+    this.territorySpent = data.territorySpent ?? 0;
     this.materials.load(data.materials);
     this.sites.clear();
     for (const s of data.construction ?? []) this.sites.set(this.siteKey(s.x, s.z), s);
@@ -620,6 +724,9 @@ export class Simulation {
   reset(): void {
     this.money = START_MONEY;
     this.month = 0;
+    this.science = 0;
+    this.disastersSurvived = 0;
+    this.territorySpent = 0;
     this.unlocked.clear();
     this.materials.reset();
     this.sites.clear();
@@ -647,6 +754,8 @@ export class Simulation {
         return this.industrialJobs;
       case 'money':
         return this.money;
+      case 'science':
+        return this.science;
     }
   }
 
@@ -745,7 +854,7 @@ export class Simulation {
     const tile = this.city.getTile(x, z);
     if (tile.type !== TileType.Residential || tile.level <= 0) return null;
     const i = z * this.city.width + x;
-    const pollution = this.pollution[i];
+    const pollution = this.pollution[i] * RES_STYLE[tile.style].pollutionMul; // eco siente menos la contaminación
     const value = this.desirability[i] - pollution; // la contaminación baja el valor percibido
     const edu = this.educationCoverage; // coberturas globales (por población)
     const hea = this.healthCoverage;
@@ -790,11 +899,18 @@ export class Simulation {
     let healthCap = 0;
     let eduCap = 0;
     let foodCap = 0;
+    let research = 0; // ritmo de ciencia (puntos/mes) de laboratorios/observatorios/etc.
+    let hero = false; // ¿hay un cuartel del héroe sano?
+    let races = 0; // circuitos de carrera sanos
 
     this.city.forEach((tile, x, z) => {
       if (this.city.isSubCell(x, z)) return; // no contar dos veces un edificio multi-casilla
+      if (tile.damaged) return; // una ruina no aporta nada hasta repararla
       const def = TILE_DEF[tile.type];
       upkeep += def.upkeep ?? 0;
+      research += def.research ?? 0;
+      if (def.hero) hero = true;
+      if (def.raceTrack) races++;
       income += def.income ?? 0; // renta fija (casino, etc.)
       industrial += def.jobs ?? 0; // empleos de las fábricas
       commercial += def.shopJobs ?? 0; // empleos de negocios especializados
@@ -809,7 +925,7 @@ export class Simulation {
       }
       switch (tile.type) {
         case TileType.Residential:
-          pop += capacityOf(tile.type, tile.level);
+          pop += capacityOf(tile.type, tile.level, tile.style);
           break;
         case TileType.Commercial:
           commercial += capacityOf(tile.type, tile.level);
@@ -848,6 +964,41 @@ export class Simulation {
     this.healthCoverage = Math.min(1, healthCap / popNeed);
     this.educationCoverage = Math.min(1, eduCap / popNeed);
     this.foodCoverage = Math.min(1, foodCap / popNeed);
+
+    // La investigación necesita energía: sin luz suficiente, los laboratorios no producen.
+    this.researchRate = this.hasPower ? research : 0;
+    this.hasHero = hero;
+    this.raceTracks = races;
+  }
+
+  /**
+   * Avanza los "días de evento" de carrera: si hay circuito, cada tanto se organiza
+   * una carrera que dura unos meses (renta extra + ambiente). Se llama una vez por mes.
+   */
+  private advanceRaces(): void {
+    if (this.raceTracks <= 0) {
+      this.raceActive = false;
+      this.raceMonthsLeft = 0;
+      this.raceCooldown = 0;
+      return;
+    }
+    if (this.raceActive) {
+      if (--this.raceMonthsLeft <= 0) {
+        this.raceActive = false;
+        this.raceCooldown = RACE_INTERVAL;
+      }
+    } else if (--this.raceCooldown <= 0) {
+      this.raceActive = true;
+      this.raceMonthsLeft = RACE_DURATION;
+      this.justStartedRace = true;
+    }
+  }
+
+  /** ¿Arrancó una carrera desde la última llamada? (para el toast). */
+  drainRaceStart(): boolean {
+    const v = this.justStartedRace;
+    this.justStartedRace = false;
+    return v;
   }
 
   private computeDemographics(): void {
@@ -895,7 +1046,7 @@ export class Simulation {
         const nz = z + dz;
         if (!this.city.inBounds(nx, nz)) continue;
         const t = this.city.getTile(nx, nz);
-        if (t.type === TileType.Residential) pop += capacityOf(t.type, t.level);
+        if (t.type === TileType.Residential && !t.damaged) pop += capacityOf(t.type, t.level, t.style);
       }
     }
     return pop;
@@ -913,6 +1064,7 @@ export class Simulation {
     this.pollution.fill(0);
     this.city.forEach((tile, x, z) => {
       if (this.city.isSubCell(x, z)) return; // la influencia emana solo del ancla
+      if (tile.damaged) return; // una ruina no emite influencia (ni contaminación)
       // Vista al agua: las casillas junto a un lago/río valen más (barrio premium).
       if (this.city.getTerrain(x, z) === 'water') {
         this.spread(this.desirability, x, z, WATER_AMENITY_RADIUS, WATER_AMENITY_STRENGTH);
@@ -920,6 +1072,11 @@ export class Simulation {
       const def = TILE_DEF[tile.type];
       if (def.amenity) {
         this.spread(this.desirability, x, z, def.amenity.radius, def.amenity.strength);
+      }
+      // Barrios premium (lujo/eco) irradian algo de valor del suelo a su alrededor.
+      if (tile.type === TileType.Residential && tile.level > 0) {
+        const lv = RES_STYLE[tile.style].landValue;
+        if (lv > 0) this.spread(this.desirability, x, z, 2, lv);
       }
       // Transporte público: alivia el tráfico cercano (espacial, se satura por población).
       if (def.transit) {
@@ -955,9 +1112,10 @@ export class Simulation {
       const add = (cx: number, cz: number) => {
         if (!this.city.inBounds(cx, cz)) return;
         const t = this.city.getTile(cx, cz);
+        if (t.damaged) return; // una ruina no genera viajes
         // El transporte público cercano a la zona quita parte de sus viajes en auto.
         const relief = Math.min(TRANSIT_MAX_RELIEF, this.transit[cz * w + cx]);
-        load += capacityOf(t.type, t.level) * (1 - relief);
+        load += capacityOf(t.type, t.level, t.style) * (1 - relief);
       };
       add(x + 1, z);
       add(x - 1, z);
@@ -978,17 +1136,23 @@ export class Simulation {
     // Nivel 3: además agua y gas suficientes.
     if (this.hasPower && sec >= COVERAGE_FOR_L2) max = 2;
     if (this.hasPower && this.hasWater && this.hasGas && sec >= COVERAGE_FOR_L3) max = 3;
-    const type = this.city.getTile(x, z).type;
+    const tile = this.city.getTile(x, z);
+    const type = tile.type;
+    // El estilo del barrio modula la contaminación percibida (eco resiste mucho mejor).
+    const styleMul = type === TileType.Residential ? RES_STYLE[tile.style].pollutionMul : 1;
+    const pollutionEff = this.pollution[i] * styleMul;
     // Rascacielos residenciales (niveles 4-5): partiendo del nivel 3, suben solo
     // donde el barrio es deseable (amenidades, descontando contaminación) y hay buen bienestar.
     if (type === TileType.Residential && max >= 3) {
-      const value = this.desirability[i] - this.pollution[i];
+      const value = this.desirability[i] - pollutionEff;
       const wb = this.wellbeing();
       if (value >= DESIRABILITY_FOR_L4 && wb >= WELLBEING_FOR_L4) max = 4;
       if (value >= DESIRABILITY_FOR_L5 && wb >= WELLBEING_FOR_L5) max = 5;
     }
     // Contaminación fuerte: frena el crecimiento (no se sube de nivel 1 en zona muy sucia).
-    if (this.pollution[i] >= POLLUTION_BLOCK) max = 1;
+    if (pollutionEff >= POLLUTION_BLOCK) max = 1;
+    // Tope estructural del estilo (suburbio y eco/lujo no llegan a rascacielos).
+    if (type === TileType.Residential) max = Math.min(max, RES_STYLE[tile.style].maxLevel);
     return Math.min(max, maxLevelOf(type));
   }
 
@@ -1037,7 +1201,7 @@ export class Simulation {
     const w = this.city.width;
 
     this.city.forEach((tile, x, z) => {
-      if (!isZone(tile.type)) return;
+      if (!isZone(tile.type) || tile.damaged) return; // las ruinas no crecen ni decaen
       if (this.sites.has(this.siteKey(x, z))) return; // ya hay una obra en curso acá
 
       const dem =
@@ -1047,7 +1211,9 @@ export class Simulation {
             ? commercial
             : industrial;
 
-      const value = this.desirability[z * w + x] - this.pollution[z * w + x]; // la contaminación resta
+      // La contaminación resta valor; el estilo eco la siente mucho menos.
+      const styleMul = tile.type === TileType.Residential ? RES_STYLE[tile.style].pollutionMul : 1;
+      const value = this.desirability[z * w + x] - this.pollution[z * w + x] * styleMul;
 
       if (dem > DEMAND_THRESHOLD && this.city.hasRoadAccess(x, z)) {
         const maxLv = this.maxLevelFor(x, z);
@@ -1077,7 +1243,7 @@ export class Simulation {
         const cz = z + dz;
         if (!this.city.inBounds(cx, cz)) return false;
         const t = this.city.getTile(cx, cz);
-        if (t.type !== TileType.Industrial || t.level < MAX_LEVEL) return false;
+        if (t.type !== TileType.Industrial || t.level < MAX_LEVEL || t.damaged) return false;
         if (this.city.hasRoadAccess(cx, cz)) road = true;
       }
     }
@@ -1120,7 +1286,8 @@ export class Simulation {
       this.commercialJobs * TAX_COMMERCE +
       this.industrialJobs * TAX_INDUSTRY +
       this.bonusIncome +
-      this.materials.tradeIncome; // ventas + exportación de materiales
+      this.materials.tradeIncome + // ventas + exportación de materiales
+      (this.raceActive ? RACE_INCOME * this.raceTracks : 0); // renta de los días de carrera
     // Gastos: mantenimiento + costo de atender a cada habitante.
     const expenses = this.totalUpkeep + this.population * SERVICE_COST_PER_CITIZEN;
     this.money += income - expenses;
@@ -1155,6 +1322,14 @@ export class Simulation {
         health: this.healthCoverage,
         education: this.educationCoverage,
         food: this.foodCoverage,
+      },
+      science: { total: Math.round(this.science), rate: this.researchRate },
+      hero: { active: this.hasHero },
+      race: { active: this.raceActive, tracks: this.raceTracks },
+      territory: {
+        tokens: this.territoryTokens(),
+        unlocked: this.city.unlockedParcelCount(),
+        total: this.city.parcelCols * this.city.parcelRows,
       },
     };
   }
