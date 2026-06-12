@@ -35,6 +35,7 @@ export class AirFx {
   private blimpAngle = 0;
   private spawnTimer = 4;
   private balloonTemplate: THREE.Object3D | null = null;
+  private planeTemplate: THREE.Object3D | null = null;
   private balloons: Balloon[] = [];
 
   constructor(
@@ -45,7 +46,8 @@ export class AirFx {
     this.blimp = this.makeBlimp();
     this.blimp.visible = false;
     this.group.add(this.blimp);
-    new GLTFLoader().load(
+    const loader = new GLTFLoader();
+    loader.load(
       'models/balloon.glb',
       (gltf) => {
         this.balloonTemplate = this.normalize(gltf.scene);
@@ -56,6 +58,46 @@ export class AirFx {
         /* sin modelo de globo → no se dibujan */
       },
     );
+    // Avión y dirigible glTF (nariz a −Z): se envuelven girados 180° porque la
+    // lógica de vuelo orienta el objeto con el frente a +Z. Sin modelo, quedan
+    // los procedurales de cajas.
+    loader.load(
+      'models/plane.glb',
+      (gltf) => {
+        const t = this.flipped(this.normalize(gltf.scene));
+        t.traverse((o) => {
+          if (o instanceof THREE.Mesh) o.castShadow = true;
+        });
+        t.scale.setScalar(1.7);
+        this.planeTemplate = t;
+      },
+      undefined,
+      () => {},
+    );
+    loader.load(
+      'models/blimp.glb',
+      (gltf) => {
+        const t = this.flipped(this.normalize(gltf.scene));
+        t.scale.setScalar(3.0);
+        const wasVisible = this.blimp.visible;
+        this.group.remove(this.blimp);
+        this.blimp = t;
+        this.blimp.visible = wasVisible;
+        this.group.add(this.blimp);
+      },
+      undefined,
+      () => {},
+    );
+  }
+
+  /** Gira el contenido 180° (modelos con nariz a −Z → la lógica usa frente +Z). */
+  private flipped(t: THREE.Object3D): THREE.Group {
+    const inner = new THREE.Group();
+    inner.rotation.y = Math.PI;
+    inner.add(t);
+    const outer = new THREE.Group();
+    outer.add(inner);
+    return outer;
   }
 
   /** Define de qué edificios sale cada aeronave (posiciones en el mundo). */
@@ -120,7 +162,7 @@ export class AirFx {
     const speed = 4 + Math.random() * 2;
     const vx = Math.cos(dir) * speed;
     const vz = Math.sin(dir) * speed;
-    const obj = this.makePlane();
+    const obj = this.planeTemplate ? this.planeTemplate.clone(true) : this.makePlane();
     obj.position.set(a.x, 1.5, a.z);
     obj.rotation.y = Math.atan2(vx, vz);
     this.planes.push({ obj, vel: new THREE.Vector3(vx, 1.1, vz), life: 12 });
@@ -190,12 +232,16 @@ export class AirFx {
       const far = Math.abs(p.obj.position.x) > limit || Math.abs(p.obj.position.z) > limit;
       if (p.life <= 0 || far) {
         this.group.remove(p.obj);
-        p.obj.traverse((o) => {
-          if (o instanceof THREE.Mesh) {
-            o.geometry.dispose();
-            (o.material as THREE.Material).dispose();
-          }
-        });
+        // Los clones del modelo COMPARTEN geometría/material con el template:
+        // solo se libera lo procedural (que crea geometría propia por avión).
+        if (!this.planeTemplate) {
+          p.obj.traverse((o) => {
+            if (o instanceof THREE.Mesh) {
+              o.geometry.dispose();
+              (o.material as THREE.Material).dispose();
+            }
+          });
+        }
         this.planes.splice(i, 1);
       }
     }

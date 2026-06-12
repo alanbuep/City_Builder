@@ -10,6 +10,7 @@ import { HeroFx } from './HeroFx';
 import { RaceFx } from './RaceFx';
 import { AirFx } from './AirFx';
 import { TrafficFx } from './TrafficFx';
+import { BoatFx } from './BoatFx';
 
 // Edificios con chimenea: emiten humo (fábricas, centrales e industria pesada).
 const SMOKING: Set<TileType> = new Set([
@@ -308,6 +309,7 @@ export class CityRenderer {
   private raceFx: RaceFx; // autos de carrera durante los días de evento
   private airFx: AirFx; // aviones desde aeropuertos + dirigible de ambiente
   private trafficFx: TrafficFx; // autitos por las calles + peatones en las veredas
+  private boatFx: BoatFx; // barcos navegando el mar (+ carguero si hay terminal)
   private lastAnim = 0;
 
   // Marcadores flotantes (nubes de sugerencia / obras de zona).
@@ -449,6 +451,7 @@ export class CityRenderer {
     this.raceFx = new RaceFx(scene);
     this.airFx = new AirFx(scene, extent);
     this.trafficFx = new TrafficFx(scene, city, grid);
+    this.boatFx = new BoatFx(scene, city, grid);
 
     this.loadModels();
   }
@@ -537,6 +540,7 @@ export class CityRenderer {
         this.hasLandscape = true;
         this.ground.visible = false; // el paisaje ya trae su propio pasto
         this.ocean.visible = false; // y su propio mar
+        this.boatFx.setWaterY(-0.72); // los barcos flotan en el mar del paisaje (plano a −0.8)
         if (this.modelsReady) this.redrawAll(); // saca los cubos de terreno por-casilla
       },
       undefined,
@@ -827,6 +831,7 @@ export class CityRenderer {
     this.raceFx.update(dt);
     this.airFx.update(dt);
     this.trafficFx.update(dt);
+    this.boatFx.update(dt);
   }
 
   /** Más población = más autos y peatones en la calle. */

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 /** Un circuito en coordenadas del mundo: centro + radio del óvalo por donde corren. */
 interface Track {
@@ -21,9 +22,40 @@ export class RaceFx {
   private active = false;
   private tracks: Track[] = [];
   private t = 0;
+  private carTemplate: THREE.Object3D | null = null;
 
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
+    // F1 glTF (nariz a −Z): girado 180° porque la lógica orienta el frente a +Z.
+    // Si falta el modelo, quedan los autitos de cajas.
+    new GLTFLoader().load(
+      'models/race_car.glb',
+      (gltf) => {
+        const scene3 = gltf.scene;
+        const box = new THREE.Box3().setFromObject(scene3);
+        const size = new THREE.Vector3();
+        const center = new THREE.Vector3();
+        box.getSize(size);
+        box.getCenter(center);
+        const s = 0.55 / Math.max(size.x, size.y, size.z, 1e-3); // largo ≈ el auto de cajas
+        scene3.scale.setScalar(s);
+        scene3.position.set(-center.x * s, -box.min.y * s, -center.z * s);
+        scene3.traverse((o) => {
+          if (o instanceof THREE.Mesh) o.castShadow = true;
+        });
+        const inner = new THREE.Group();
+        inner.rotation.y = Math.PI;
+        inner.add(scene3);
+        const outer = new THREE.Group();
+        outer.add(inner);
+        this.carTemplate = outer;
+        // Si ya había autos de cajas corriendo, se reemplazan en la próxima carrera.
+        for (const c of this.cars) this.group.remove(c);
+        this.cars = [];
+      },
+      undefined,
+      () => {},
+    );
   }
 
   /** Define si hay carrera y en qué circuitos (centro + radio en el mundo). */
@@ -62,7 +94,9 @@ export class RaceFx {
     this.t += dt;
     const need = this.active ? this.tracks.length * CARS_PER_TRACK : 0;
     while (this.cars.length < need) {
-      const car = this.makeCar(CAR_COLORS[this.cars.length % CAR_COLORS.length]);
+      const car = this.carTemplate
+        ? this.carTemplate.clone(true)
+        : this.makeCar(CAR_COLORS[this.cars.length % CAR_COLORS.length]);
       this.group.add(car);
       this.cars.push(car);
     }

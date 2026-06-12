@@ -220,15 +220,15 @@ apenas existan. Convención: "frente" hacia −Z.
 | archivo | estado | notas |
 |---|---|---|
 | `race_track` | ✅ HECHO | Circuito 3×3 (atracción). Carga en silencio: aparece apenas lo dibujes. |
-| `race_car` | procedural | Auto de carrera (hoy es un autito de cajas; da vueltas en los días de evento). |
-| `plane` | procedural | Avión (hoy fuselaje+alas de cajas; despega del aeropuerto y cruza el cielo). |
-| `blimp` | procedural | Dirigible (hoy elipsoide+góndola; ronda lento la ciudad). |
+| `race_car` | ✅ HECHO + cableado | F1 low-poly rojo (nariz +Y/−Z, alerones, ruedas expuestas, casco). RaceFx lo clona (envuelto 180°: la lógica orienta a +Z). |
+| `plane` | ✅ HECHO + cableado | Avión blanco (fuselaje+nariz cónica, alas franja azul, 2 motores, cola). Nariz −Z. AirFx lo usa para los despegues. |
+| `blimp` | ✅ HECHO + cableado | Dirigible: envoltura elipsoidal con franja roja, góndola, 4 aletas de cola. Nariz −Z. AirFx lo usa (reemplaza al procedural). |
 | `balloon` | ✅ HECHO + cableado | Globo aerostático: aparece cuando la ciudad tiene gente (turismo), deriva lento y sube/baja. |
 
 > Ya implementado: el aeropuerto emite aviones; el circuito hace "días de evento"
 > con autos dando vueltas y renta extra; el dirigible es ambiente permanente.
 
-### 0e) Tráfico urbano y peatones (YA funcionan con cajas instanciadas) 🚗🚶
+### 0e) Tráfico urbano y peatones — ✅ HECHO (car_small + person) 🚗🚶
 `render/TrafficFx.ts` hace circular autitos por las calles (mano derecha, doblan
 en los cruces) y peatones por las veredas, con InstancedMesh (un draw call por
 tipo). Hoy son CAJAS de colores; con modelos low-poly quedaría BuildIt total.
@@ -238,8 +238,8 @@ con `setColorAt`, así que conviene modelarlos en GRIS CLARO neutro para teñirl
 Convención: "frente" hacia +X, apoyados en y=0, largo del auto ≈ 0.34 (la casilla mide 1).
 | archivo | estado | notas |
 |---|---|---|
-| `car_small` | procedural (cajas) | Autito genérico (sedán/hatch redondeadito). Se tiñe por instancia: modelar en gris claro. |
-| `person` | procedural (cajas) | Peatón low-poly (cápsula con cabeza basta). También teñido por instancia. |
+| `car_small` | ✅ HECHO + cableado | Hatch redondeado, **gris claro neutro** (1 material vertex-color) para teñir por instancia; vidrios y ruedas oscuros, faros. Frente +X, largo 0.34, 104 verts. TrafficFx reemplaza las cajas al cargar. |
+| `person` | ✅ HECHO + cableado | Cápsula con cabeza, **gris claro** para teñir por instancia. Frente +X, ~0.24 alto, 44 verts. Ídem. |
 
 ### 1) Puentes y cruces de agua (desbloquea construir cruzando ríos)
 | archivo | tamaño | notas |
@@ -273,15 +273,17 @@ motor cargará en silencio apenas existan (convención: ocupan 1×1, base en y=0
 > Cuando estén, los conecto igual que `beach_sand` (mapa `TERRAIN_MODEL` en
 > `CityRenderer`): `mountain → mountain.glb`, `water → sea.glb`.
 
-### 2c) Barcos (tráfico de agua — próximo) 🚢⛴️
-Cuando esté el agua linda, agregamos barcos que navegan el mar/ríos (ambiente +
-los de contenedores ligados al puerto). Animación mía (como aviones/autos); los
-modelos van a falta. Convención: "frente" hacia +Z (como aviones/autos).
+### 2c) Barcos (tráfico de agua) — ✅ HECHO (boat + cargo_ship + sailboat) 🚢⛴️
+Barcos que navegan el mar/ríos (ambiente + los de contenedores ligados al puerto).
+Convención: "frente" (proa) hacia +Z. **✅ Cableado** en `render/BoatFx.ts`: dos
+veleros + una lancha pasean por la franja de mar del lado de la costa (con bamboleo),
+y el **carguero cruza de punta a punta cada ~18 s cuando hay terminal de exportación**.
+Solo aparecen si un borde del mapa es costa de verdad.
 | archivo | notas |
 |---|---|
-| `boat` | Barquito/lancha de paseo (ambiente, navega el mar). |
-| `cargo_ship` | Barco de contenedores (sale del puerto/terminal, navega cargado). |
-| `sailboat` | Velero (opcional, ambiente costero). |
+| `boat` | ✅ HECHO — Lancha de paseo: casco blanco, cabina celeste, parabrisas, banda roja. Proa +Z. |
+| `cargo_ship` | ✅ HECHO — Carguero: casco rojo/oscuro, contenedores apilados de colores, puente blanco, chimenea. Proa +Z. |
+| `sailboat` | ✅ HECHO — Velero: casco blanco/madera, mástil, vela mayor + foque (caras doble-cara). Proa +Z. |
 
 ### 3) Estilos de residencia (zonas con onda distinta)
 Cada estilo es una escalera de niveles (como `residential_1..5`). Empezamos con 3

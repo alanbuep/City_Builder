@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { City } from '../sim/City';
 import { TileType } from '../sim/types';
 import { GridSpec, tileCenterX, tileCenterZ } from '../grid';
@@ -55,7 +56,7 @@ export class TrafficFx {
   private dummy = new THREE.Object3D();
 
   constructor(
-    scene: THREE.Scene,
+    private scene: THREE.Scene,
     private city: City,
     private grid: GridSpec,
   ) {
@@ -75,6 +76,63 @@ export class TrafficFx {
 
     for (let i = 0; i < MAX_CARS; i++) this.carAgents.push(this.blank(CAR_SPEED));
     for (let i = 0; i < MAX_PEDS; i++) this.pedAgents.push(this.blank(PED_SPEED));
+
+    // Modelos lindos (si existen): reemplazan a las cajas apenas cargan.
+    const loader = new GLTFLoader();
+    this.upgradeMesh(loader, 'car_small', 0.34, 'x', MAX_CARS, (m) => (this.cars = m), () => this.cars);
+    this.upgradeMesh(loader, 'person', 0.22, 'y', MAX_PEDS, (m) => (this.peds = m), () => this.peds);
+  }
+
+  /**
+   * Carga `models/<file>.glb`, lo normaliza (centrado, base en y=0, tamaño objetivo
+   * sobre el eje dado — el frente es +X por convención) y reemplaza el InstancedMesh
+   * de cajas conservando el pool y el teñido por instancia. Si falta, quedan las cajas.
+   */
+  private upgradeMesh(
+    loader: GLTFLoader,
+    file: string,
+    targetSize: number,
+    axis: 'x' | 'y',
+    max: number,
+    apply: (m: THREE.InstancedMesh) => void,
+    current: () => THREE.InstancedMesh,
+  ): void {
+    loader.load(
+      `models/${file}.glb`,
+      (gltf) => {
+        gltf.scene.updateMatrixWorld(true);
+        let src: THREE.Mesh | undefined;
+        gltf.scene.traverse((o) => {
+          if (!src && o instanceof THREE.Mesh) src = o;
+        });
+        if (!src) return;
+        const geo = (src.geometry as THREE.BufferGeometry).clone().applyMatrix4(src.matrixWorld);
+        geo.computeBoundingBox();
+        const size = new THREE.Vector3();
+        geo.boundingBox!.getSize(size);
+        const s = targetSize / Math.max(1e-3, axis === 'x' ? size.x : size.y);
+        geo.scale(s, s, s);
+        geo.computeBoundingBox();
+        const bb = geo.boundingBox!;
+        const center = new THREE.Vector3();
+        bb.getCenter(center);
+        geo.translate(-center.x, -bb.min.y, -center.z);
+        const mat = (Array.isArray(src.material) ? src.material[0] : src.material).clone();
+        const mesh = new THREE.InstancedMesh(geo, mat, max);
+        mesh.count = 0;
+        mesh.frustumCulled = false;
+        mesh.castShadow = true;
+        const old = current();
+        this.scene.remove(old);
+        old.dispose();
+        this.scene.add(mesh);
+        apply(mesh);
+      },
+      undefined,
+      () => {
+        /* sin modelo: quedan las cajas */
+      },
+    );
   }
 
   /** Game la actualiza cada frame: más gente = más autos y peatones. */
