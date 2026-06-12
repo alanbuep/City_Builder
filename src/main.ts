@@ -1,16 +1,16 @@
 import { Game } from './Game';
 
 const app = document.getElementById('app');
-const toolbar = document.getElementById('toolbar');
-const hud = document.getElementById('hud');
+const topbar = document.getElementById('topbar');
+const actionbar = document.getElementById('actionbar');
 const inspector = document.getElementById('inspector');
 
-if (!app || !toolbar || !hud || !inspector) {
-  throw new Error('Faltan contenedores (#app, #toolbar, #hud o #inspector) en index.html');
+if (!app || !topbar || !actionbar || !inspector) {
+  throw new Error('Faltan contenedores (#app, #topbar, #actionbar o #inspector) en index.html');
 }
 
 // Arranca el juego. A partir de aquí todo vive dentro de Game.
-new Game(app, toolbar, hud, inspector);
+new Game(app, topbar, actionbar, inspector);
 
 // PWA: tras la primera visita el juego queda jugable sin internet (solo en el
 // build publicado; en desarrollo molestaría con caché vieja).

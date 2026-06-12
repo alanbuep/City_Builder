@@ -1,13 +1,17 @@
 import { SceneManager } from './render/SceneManager';
 import { CityRenderer } from './render/CityRenderer';
 import { Picker } from './input/Picker';
-import { Toolbar, isPaintTool } from './ui/Toolbar';
-import { Hud } from './ui/Hud';
+import { isPaintTool } from './ui/Catalog';
+import { BuildMenu } from './ui/BuildMenu';
+import { TopBar } from './ui/TopBar';
+import { ActionBar } from './ui/ActionBar';
 import { Inspector } from './ui/Inspector';
 import { Notifications } from './ui/Notifications';
-import { SaveMenu } from './ui/SaveMenu';
+import { MissionsModal } from './ui/MissionsModal';
+import { TechModal } from './ui/TechModal';
+import { MenuModal } from './ui/MenuModal';
 import { Sound } from './ui/Sound';
-import { DisasterMenu } from './ui/DisasterMenu';
+import { DisasterModal } from './ui/DisasterModal';
 import { City } from './sim/City';
 import { Simulation } from './sim/Simulation';
 import { FEATURE_LEVEL, LEVEL_MONEY } from './sim/Level';
@@ -54,10 +58,13 @@ export class Game {
   private scene: SceneManager;
   private cityRenderer: CityRenderer;
   private picker: Picker;
-  private toolbar: Toolbar;
-  private hud: Hud;
+  private build: BuildMenu;
+  private topBar: TopBar;
+  private actionBar: ActionBar;
   private inspector: Inspector;
   private notifications: Notifications;
+  private missionsModal = new MissionsModal();
+  private techModal = new TechModal();
   private sound = new Sound();
   private disastersRandom = false; // ¿se desatan catástrofes al azar?
 
@@ -88,8 +95,8 @@ export class Game {
 
   constructor(
     canvasContainer: HTMLElement,
-    toolbarContainer: HTMLElement,
-    hudContainer: HTMLElement,
+    topbarContainer: HTMLElement,
+    actionbarContainer: HTMLElement,
     inspectorContainer: HTMLElement,
   ) {
     this.city = new City(this.grid.width, this.grid.height);
@@ -98,12 +105,41 @@ export class Game {
     this.scene.setPanLimit((Math.max(this.grid.width, this.grid.height) * this.grid.tileSize) / 2 + 6);
     this.cityRenderer = new CityRenderer(this.scene.scene, this.city, this.grid);
     this.picker = new Picker(this.scene.camera, this.scene.renderer.domElement, this.city, this.grid);
-    this.toolbar = new Toolbar(toolbarContainer);
-    this.hud = new Hud(hudContainer, {
+    // Al elegir una herramienta se cierra el inspector (la píldora y el panel
+    // comparten lugar abajo al centro; además ya no estás "seleccionando").
+    this.build = new BuildMenu(() => {
+      if (this.build.current !== 'select') this.deselect();
+    });
+    this.topBar = new TopBar(topbarContainer);
+    const disasterModal = new DisasterModal({
+      onTriggerFire: () => this.triggerFire(),
+      onTriggerMeteor: () => this.triggerMeteor(),
+      onTriggerTornado: () => this.triggerTornado(),
+      onTriggerHurricane: () => this.triggerHurricane(),
+      onToggleRandom: (enabled) => {
+        this.disastersRandom = enabled;
+      },
+    });
+    const menuModal = new MenuModal(
+      {
+        onSave: () => this.save(),
+        onLoad: () => this.loadSaved(),
+        onNew: () => this.newCity(),
+        onExport: () => exportFile(this.buildSaveData()),
+        onImport: (file) => this.importCity(file),
+      },
+      this.sound,
+    );
+    this.actionBar = new ActionBar(actionbarContainer, {
       onTogglePause: () => this.togglePause(),
       onSetSpeed: (s) => this.setSpeed(s),
       onToggleMode: () => this.toggleMode(),
       onStartAll: () => this.startAllConstruction(),
+      onOpenBuild: () => this.build.open(),
+      onOpenMissions: () => this.missionsModal.open(),
+      onOpenTech: () => this.techModal.open(),
+      onOpenDisasters: () => disasterModal.open(),
+      onOpenMenu: () => menuModal.open(),
     });
     this.inspector = new Inspector(inspectorContainer, {
       onUpgrade: () => this.upgradeSelected(),
@@ -115,23 +151,6 @@ export class Game {
       onClose: () => this.deselect(),
     });
     this.notifications = new Notifications();
-    new DisasterMenu(document.getElementById('disasterbar') ?? document.body, {
-      onTriggerFire: () => this.triggerFire(),
-      onTriggerMeteor: () => this.triggerMeteor(),
-      onTriggerTornado: () => this.triggerTornado(),
-      onTriggerHurricane: () => this.triggerHurricane(),
-      onToggleRandom: (enabled) => {
-        this.disastersRandom = enabled;
-      },
-    });
-    const saveMenu = new SaveMenu(document.getElementById('savebar') ?? hudContainer, {
-      onSave: () => this.save(),
-      onLoad: () => this.loadSaved(),
-      onNew: () => this.newCity(),
-      onExport: () => exportFile(this.buildSaveData()),
-      onImport: (file) => this.importCity(file),
-    });
-    this.sound.attachButton(saveMenu.panel);
 
     const dom = this.scene.renderer.domElement;
     dom.addEventListener('pointermove', (e) => this.onPointerMove(e));
@@ -158,7 +177,7 @@ export class Game {
     window.addEventListener('keydown', (e) => {
       // Escape: vuelve a la herramienta de selección 🔍 (para clickear edificios y ver su info).
       if (e.key === 'Escape') {
-        this.toolbar.useSelect();
+        this.build.useSelect();
         this.deselect();
       }
     });
@@ -170,7 +189,7 @@ export class Game {
     } else {
       // Ciudad nueva: arranca en modo Constructor (vos dirigís cada obra) + terreno natural.
       this.sim.mode = 'manual';
-      this.hud.setMode('manual');
+      this.actionBar.setMode('manual');
       this.generateTerrain();
       this.cityRenderer.setLockedRegions(this.city.lockedRegions());
       this.cityRenderer.refreshOcean();
@@ -226,7 +245,7 @@ export class Game {
 
   /** Resalta bajo el cursor; con un edificio grande, muestra TODO su footprint. */
   private updateHover(coord: Coord | null): void {
-    const tool = this.toolbar.current;
+    const tool = this.build.current;
     if (tool === 'select') {
       // Selección: ilumina el edificio bajo el cursor; si no hay, marca el piso.
       const lit = this.cityRenderer.setHighlight(coord);
@@ -336,7 +355,7 @@ export class Game {
       }
     }
     // Represas/puertos: tienen que tocar el agua.
-    if (TILE_DEF[this.toolbar.current as TileType]?.needsWater && !this.city.isNextToWater(coord.x, coord.z, size)) {
+    if (TILE_DEF[this.build.current as TileType]?.needsWater && !this.city.isNextToWater(coord.x, coord.z, size)) {
       return false;
     }
     return this.footprintHasRoad(coord, size); // los edificios necesitan calle
@@ -350,7 +369,7 @@ export class Game {
     if (e.button !== 0) return; // botón izquierdo
     if (this.dismissBubbleAt(e)) return; // clickear una burbuja la cierra (no construye/selecciona)
     const coord = this.picker.tileAt(e);
-    const tool = this.toolbar.current;
+    const tool = this.build.current;
 
     // Herramienta de selección.
     if (tool === 'select') {
@@ -419,7 +438,7 @@ export class Game {
     this.touchDown = { x: e.clientX, y: e.clientY, coord };
     if (!coord) return;
 
-    const tool = this.toolbar.current;
+    const tool = this.build.current;
     const paints = tool !== 'select' && (isPaintTool(tool) || !this.requiresRoad(tool));
     const roadStretch = tool === 'select' && this.city.getTile(coord.x, coord.z).type === TileType.Road;
     if (!paints && !roadStretch) return;
@@ -463,7 +482,7 @@ export class Game {
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
     if (moved > TAP_SLOP_PX) return; // fue un paneo de cámara, no un tap
     if (this.dismissBubbleAt(e)) return;
-    const tool = this.toolbar.current;
+    const tool = this.build.current;
     const coord = this.picker.tileAt(e) ?? down.coord;
     if (!coord) {
       if (tool === 'select') this.deselect();
@@ -492,11 +511,19 @@ export class Game {
     this.placeConstructionSite(coord, tool, TILE_DEF[tool].size ?? 1);
   }
 
-  /** Abre una obra (cartel) de S×S: ocupa el terreno gratis; se construye al dar el OK. */
+  /**
+   * Abre una obra (cartel) de S×S: ocupa el terreno gratis; se construye al dar
+   * el OK. Al colocarla, vuelve a la selección y la deja SELECCIONADA: así el
+   * panel con el botón "▶️ Iniciar" aparece al toque (estilo BuildIt).
+   */
   private placeConstructionSite(coord: Coord, type: TileType, size: number): void {
     if (!this.canPlaceSite(coord, size)) return;
     if (this.city.placeBuilding(coord.x, coord.z, TileType.Construction, size)) {
       this.sim.addSite(coord.x, coord.z, size, type);
+      this.sound.play('build');
+      this.build.useSelect();
+      this.roadSelection = [];
+      this.select(coord);
     }
   }
 
@@ -506,7 +533,7 @@ export class Game {
    * el último tramo (con reembolso): así podés corregir la traza sin soltar.
    */
   private paintAt(coord: Coord): void {
-    const tool = this.toolbar.current;
+    const tool = this.build.current;
     if (tool === 'select') return;
 
     // Pintar terreno (agua/tierra) a mano — no usa el trazo de obras ni cuesta dinero.
@@ -537,8 +564,8 @@ export class Game {
     // se puede "pintar" un distrito de un estilo arrastrando sobre lo ya zonificado.
     if (tool === TileType.Residential) {
       const t = this.city.getTile(coord.x, coord.z);
-      if (t.type === TileType.Residential && t.style !== this.toolbar.currentResStyle) {
-        this.city.setResidentialStyle(coord.x, coord.z, this.toolbar.currentResStyle);
+      if (t.type === TileType.Residential && t.style !== this.build.currentResStyle) {
+        this.city.setResidentialStyle(coord.x, coord.z, this.build.currentResStyle);
         return;
       }
     }
@@ -559,7 +586,7 @@ export class Game {
       this.sound.play(tool === TileType.Empty ? 'demolish' : 'build');
       this.sim.spend(cost);
       // Al zonificar residencial, le aplico el estilo de barrio elegido.
-      if (tool === TileType.Residential) this.city.setResidentialStyle(coord.x, coord.z, this.toolbar.currentResStyle);
+      if (tool === TileType.Residential) this.city.setResidentialStyle(coord.x, coord.z, this.build.currentResStyle);
       // Demoler reintegra parte del costo de lo que había (anti-trabarse sin dinero).
       if (tool === TileType.Empty && prevType !== TileType.Empty) {
         const refund = Math.round(TILE_DEF[prevType].cost * DEMOLISH_REFUND);
@@ -715,7 +742,7 @@ export class Game {
   private applySave(data: SaveData): void {
     this.city.load(data.city); // marca todo sucio → el render se re-sincroniza en el loop
     this.sim.load(data.sim);
-    this.hud.setMode(this.sim.mode); // sincroniza el botón de modo con lo cargado
+    this.actionBar.setMode(this.sim.mode); // sincroniza el botón de modo con lo cargado
     this.cityRenderer.setLockedRegions(this.city.lockedRegions());
     this.cityRenderer.refreshOcean();
     this.deselect();
@@ -766,17 +793,17 @@ export class Game {
 
   private togglePause(): void {
     this.paused = !this.paused;
-    this.hud.setPaused(this.paused);
+    this.actionBar.setPaused(this.paused);
   }
 
   private setSpeed(speed: number): void {
     this.speed = speed;
-    this.hud.setSpeed(speed);
+    this.actionBar.setSpeed(speed);
   }
 
   private toggleMode(): void {
     this.sim.mode = this.sim.mode === 'auto' ? 'manual' : 'auto';
-    this.hud.setMode(this.sim.mode);
+    this.actionBar.setMode(this.sim.mode);
   }
 
   // --- Bucle principal ---
@@ -813,7 +840,7 @@ export class Game {
     this.refreshSelection();
 
     // Tecnología: refresca qué edificios están disponibles y avisa los nuevos.
-    this.toolbar.setUnlocked(this.sim.unlockedTypes());
+    this.build.setUnlocked(this.sim.unlockedTypes());
     for (const tech of this.sim.drainUnlocks()) {
       this.notifications.toast(tech.icon, `¡Desbloqueado: ${tech.name}!`);
       this.sound.play('unlock');
@@ -835,12 +862,8 @@ export class Game {
         this.notifications.toast('🌪️', '¡Se desbloquearon las catástrofes! (menú de la izquierda)');
       }
     }
-    // El menú de catástrofes recién aparece cuando la ciudad tiene nivel para eso.
-    const disasterBar = document.getElementById('disasterbar');
-    if (disasterBar) {
-      const show = this.sim.level >= FEATURE_LEVEL.disasters;
-      if ((disasterBar.style.display === 'none') === show) disasterBar.style.display = show ? '' : 'none';
-    }
+    // El botón de catástrofes recién aparece cuando la ciudad tiene nivel para eso.
+    this.actionBar.setDisastersVisible(this.sim.level >= FEATURE_LEVEL.disasters);
 
     this.cityRenderer.setMarkers(this.sim.getMarkers()); // nubes: obras + sugerencias de mejora
     const burning = this.sim.disasters.burningCells();
@@ -876,10 +899,10 @@ export class Game {
     this.cityRenderer.animate(now); // pulso del resaltado de selección
     const stats = this.sim.getStats();
     this.cityRenderer.setCrowd(stats.population); // autitos y peatones según la gente
-    this.hud.update(stats);
-    this.hud.setTech(this.sim.getTechStatus());
-    this.hud.setMissions(this.sim.getMissions());
-    this.hud.setLevel(this.sim.getLevelStatus());
+    this.topBar.update(stats);
+    this.topBar.setLevel(this.sim.getLevelStatus());
+    this.missionsModal.update(this.sim.getMissions()); // solo redibujan si están abiertas
+    this.techModal.update(this.sim.getTechStatus(), stats.science);
     this.notifications.update(this.sim.getAlerts());
     this.scene.render();
   };
