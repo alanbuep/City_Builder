@@ -9,7 +9,6 @@ import { SaveMenu } from './ui/SaveMenu';
 import { DisasterMenu } from './ui/DisasterMenu';
 import { City } from './sim/City';
 import { Simulation } from './sim/Simulation';
-import { generateTerrain as genTerrain } from './sim/Terrain';
 import { TILE_DEF, TileType, isZone, Tile } from './sim/types';
 import { SaveData, SAVE_VERSION, saveLocal, loadLocal, exportFile, importFile } from './storage/SaveStore';
 import { GridSpec } from './grid';
@@ -605,13 +604,14 @@ export class Game {
   }
 
   /**
-   * Genera el terreno natural de una ciudad nueva: un lago, un grupo de montañas
-   * y (a veces) un río que NO cruza todo el mapa — todavía no hay puentes, así que
-   * dejo siempre tierra alrededor para poder trazar calles. No se puede construir
-   * sobre agua/montaña; las casillas junto al agua valen más (vista al lago/río).
+   * Terreno de una ciudad nueva. Ahora el relieve (cordillera, mar, colinas) lo
+   * provee el PAISAJE único `landscape.glb`, cuya área jugable central es una
+   * meseta PLANA de pasto. Por eso la grilla arranca toda en `land` (plana): el
+   * jugador construye sobre la meseta y el paisaje rodea la escena. Los ríos
+   * manuales y el mar in-game se reintroducen cuando alineemos el dato a la malla.
    */
   private generateTerrain(): void {
-    genTerrain(this.city); // generación movida a sim/Terrain.ts (testeable)
+    // Sin features procedurales: meseta plana que calza con landscape.glb.
   }
 
   private importCity(file: File): void {

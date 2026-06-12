@@ -324,6 +324,11 @@ export class Hud {
 
     const terr = stats.territory;
     this.territoryEl.innerHTML = `${terr.unlocked}/${terr.total} <span style="font-size:10px; color:#ffd54f">${terr.tokens} 🗝️</span>`;
+    const sr = terr.sources;
+    this.territoryEl.title =
+      `Fichas 🗝️ para expandir territorio\n` +
+      `Disponibles: ${terr.tokens} · próxima parcela: ${terr.nextCost}\n` +
+      `Ganadas: ${sr.tech} hitos tecnológicos + ${sr.disasters} catástrofes + ${sr.population} hitos de población`;
   }
 
   /** Actualiza el panel de tecnología: hitos logrados y el próximo desbloqueo. */

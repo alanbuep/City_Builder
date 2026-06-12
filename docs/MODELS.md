@@ -35,6 +35,127 @@ su orientación base) para que el sistema los rote igual.
 
 ---
 
+## ★★★ PAISAJE COMPLETO DE LA CIUDAD — `landscape.glb` (PRIORIDAD MÁXIMA) ✅ HECHO 🏞️
+
+> **HECHO:** `public/models/landscape.glb` (6.2 MB, ~44k tris, fuente editable en
+> `assets-src/landscape.blend`). Heightfield 400×400 (decorado hasta el borde) con:
+> meseta jugable 48×48 perfectamente plana en y=0 (pasto verde vivo), **mar+playa
+> de arena** al sur (Blender −Y / glTF +Z), **cordillera nevada** al norte (Blender
+> +Y / glTF −Z, picos ~60u con roca gris y nieve sólo en cimas), **colinas verdes**
+> al este/oeste que suben en los bordes para tapar el horizonte, ~240 **pinos
+> low-poly** sembrados en laderas y faldas. Sombreado AO horneado en **vertex-colors**
+> (1 material vertex-color para el terreno + material de agua turquesa + material de
+> pinos). Plano de agua incluido a y=−0.8 (dejá olas al shader del motor). Sin
+> reescalar, sin rotar (convención terreno), origen en (0,0,0). ✅ **Ya wireado en el
+> motor**: se carga 1 vez en el origen y oculta el pasto/océano/terreno por-casilla.
+>
+> **✅ PINOS CORREGIDOS (2026-06-02):** re-exportado. (a) Ya **no salen negros**:
+> los pinos van como **objeto separado** dentro del glb con material propio verde
+> (`pine_fol`, Metallic 0) y **sin** atributo de vertex-color (antes heredaban el
+> negro del terreno al estar unidos). Normales recalculadas hacia afuera. (b) Ya
+> **no son gigantes**: bajados a **~1.6–2.8 unidades** de alto (escala variada entre
+> árboles), proporcionados a una casa de 1×1.
+
+**Cambio de enfoque.** Dejamos de dibujar el terreno con cubitos por casilla (agua =
+cubo azul, montaña = cubo marrón: feo, tipo Minecraft). En su lugar queremos **UN
+solo modelo gigante** con TODO el paisaje de la ciudad hecho a mano en Blender —
+estilo **SimCity BuildIt**: enorme, con cordillera nevada al fondo, mar que llega
+al horizonte, playa, colinas verdes y bosques enmarcando. **Construimos ENCIMA**:
+el motor coloca los edificios sobre la zona plana central y se superponen al
+paisaje. Que al verlo sea **una locura** — casi realista, buena iluminación, que dé
+ganas de jugar solo por mirarlo.
+
+> Este es el **asset estrella**. A diferencia de los edificios (low-poly, cientos de
+> tris), acá podés gastar más polígonos (decenas de miles está bien: es UN modelo,
+> se carga una vez) y cuidar la iluminación/horneado. Vale la pena que quede hermoso.
+
+### Medidas EXACTAS (críticas — si no, los edificios flotan o se hunden)
+
+El motor centra el modelo en el origen del mundo `(0,0,0)`. La cuadrícula de
+construcción es **48×48 casillas de 1 unidad**, centrada en el origen:
+
+- **Zona jugable (meseta plana):** un cuadrado de **48 × 48 unidades**, esquinas en
+  **X ∈ [−24, +24]** y **Z ∈ [−24, +24]**. Esta zona tiene que ser **PERFECTAMENTE
+  PLANA y a y = 0** (la superficie donde se apoyan los edificios). Ni un bache:
+  cualquier relieve acá hace flotar/hundir las construcciones.
+- **Pasto de la meseta:** verde césped vivo, plano. Puede tener una sutilísima
+  variación de tono (manchas de pasto más claro/oscuro) **pintada en el material o
+  vertex-color**, pero la GEOMETRÍA debe ser plana a y=0.
+- **Origen / centro:** el centro del cuadro jugable coincide con `(0,0,0)`. Apoyá
+  todo de modo que la meseta quede en **y = 0** exacto. (El motor NO reescala este
+  modelo: respeta tus unidades 1:1. 1 unidad Blender = 1 casilla = 1 "metro".)
+- **Extensión total (paisaje decorativo):** que se extienda MUY lejos para que la
+  cámara nunca vea el borde. Apuntá a **~800 × 800 unidades** en total (de −400 a
+  +400). Todo lo que esté **fuera del cuadro [−24,+24]** es decorado (no se
+  construye ahí): ahí van montañas, mar, colinas, bosque.
+
+### Composición del paisaje (alrededor de la meseta jugable)
+
+Pensalo como una bandeja: la ciudad en el centro, rodeada de naturaleza que sube al
+fondo y baja al mar adelante.
+
+| Zona | Dónde | Qué va |
+|---|---|---|
+| **Meseta ciudad** | X,Z ∈ [−24,+24], y=0, plana | Pasto liso. Acá construye el jugador. |
+| **Borde costero (sur, Z ≈ +24)** | una franja del lado +Z | La meseta **baja suave** a una **playa de arena** y luego al **MAR**, que se extiende hasta el horizonte (Z hacia +400). Olas suaves, espuma en la orilla. Azul turquesa lindo. |
+| **Cordillera (norte, Z ≈ −24)** | detrás de la ciudad, lado −Z | **Cadena de montañas** que sube de punta a punta, **picos nevados** (blanco arriba, roca gris-marrón, pinos verdes en la base). Alturas variadas, majestuosa. Alto: 40–80 unidades. |
+| **Colinas laterales (este/oeste, X ≈ ±24)** | costados | **Colinas verdes onduladas** con manchones de **bosque** (pinos/robles low-poly), algún risco. Enmarcan la ciudad y tapan el horizonte de los lados. |
+| **Transiciones** | bordes de la meseta | El pasto plano de la ciudad se funde con suavidad en las colinas/playa (un pequeño talud), para que no haya un escalón duro entre lo plano y lo natural. |
+
+> **Coherencia con el juego (importante):** el motor necesita saber dónde hay MAR
+> (para que los puertos pidan agua al lado) y dónde montaña (no se construye). Para
+> eso, el **mar y la montaña que toquen el cuadro jugable deben alinearse a la grilla**:
+> el agua que entra al cuadro [−24,+24] que ocupe **filas/columnas completas de 1
+> unidad** (ej.: las últimas ~6 filas del lado +Z son mar). Así el motor marca esas
+> casillas como `water`/`mountain` y todo calza. La parte del mar/montaña que está
+> **fuera** del cuadro es puro decorado, libre.
+
+### Estilo, materiales e iluminación (que quede "tremendo")
+
+- **Paleta SimCity BuildIt:** colores vivos y saturados pero armónicos. Césped
+  verde primaveral, mar turquesa, arena cálida, roca gris-cálida, nieve blanco-azulada.
+- **Low-poly estilizado, no realista-fotográfico:** facetas limpias, formas
+  redondeadas y amigables. Pero con suficiente subdivisión en montañas/colinas para
+  que se lea el relieve (no cubos).
+- **Iluminación HORNEADA recomendada:** como el motor ilumina con su propia luz, lo
+  que más sube la calidad es **hornear ambient occlusion / sombras suaves a textura
+  o a vertex-color** (grietas de montaña oscuras, base de árboles con sombra, AO en
+  los valles). Eso da el look "casi realista, buena iluminación" sin depender del
+  engine. Materiales mayormente **color plano + AO horneado**.
+- **Agua:** material azul turquesa, leve transparencia/brillo. La animación de olas
+  la puedo hacer yo en el motor (shader) si dejás el mar como una superficie limpia;
+  o podés hornear un ondulado sutil en la malla.
+- **Nieve:** blanca con un toque azulado en sombra; borde irregular donde se mezcla
+  con la roca (no una línea recta).
+- **Emissive (opcional):** si dejás algún detalle (faros costeros, etc.) marcalo
+  emissive para el futuro ciclo día/noche.
+
+### Export
+
+- **Formato:** `.glb` (binario, materiales y texturas embebidas). Va en
+  `public/models/landscape.glb`.
+- **Escala:** 1 unidad Blender = 1 casilla. **No reescalar al exportar**: aplicá
+  transforms (Ctrl+A → All Transforms) para que las medidas sean reales.
+- **Origen:** centro del cuadro jugable en `(0,0,0)`, meseta en `y=0`.
+- **Optimización:** una sola malla (o pocas) con materiales compartidos; si usás
+  muchos árboles, conviene que sean instancias / un mismo material para no inflar.
+
+### Cómo lo conecto en el motor (referencia para mí, futura sesión)
+
+Cuando exista `landscape.glb`: cargarlo UNA vez, posicionarlo en el origen sin
+reescalar; **reemplaza** los planos infinitos de pasto + el slab de océano + el
+terreno por-casilla. El motor seguirá marcando como `water`/`mountain` las casillas
+del cuadro que el paisaje cubre con mar/montaña (alineadas a la grilla, ver nota
+arriba), para que puertos y construcción respeten el relieve. La meseta plana hace
+que los edificios apoyen perfecto.
+
+> **Superseded:** la ficha **2b (mountain/sea por casilla)** queda OBSOLETA con este
+> enfoque — ya no hace falta dibujar cubos de montaña ni de mar sueltos; los reemplaza
+> este paisaje único. (Los `tree_*`, `rock_*`, `bush` de la 2) siguen sirviendo como
+> decoración que el jugador coloca sobre la meseta.)
+
+---
+
 ## YA HECHOS (66 modelos) — referencia de estilo
 
 No hay que rehacerlos; sirven de guía de paleta y proporción.
@@ -125,7 +246,7 @@ Modelos chicos, varios por casilla está bien (el motor puede repartirlos).
 | `beach_sand` | 1×1 | Casilla de arena (borde de agua → playa). |
 | `flowers` | <1×1 | Cantero decorativo. |
 
-### 2b) TERRENO: montaña y agua (lo más feo ahora — a modelar) 🏔️🌊 ✅ HECHO (mountain, sea)
+### 2b) ~~TERRENO: montaña y agua por casilla~~ — ⛔ OBSOLETO (lo reemplaza `landscape.glb`, ver sección ★★★ arriba) 🏔️🌊
 Hoy el terreno se dibuja con CUBOS de color: el agua es un cubo azul plano (feo,
 tipo Minecraft) y la montaña un cubo marrón (los "bloques de la esquina" que viste
 son eso: montañas). La **playa ya usa `beach_sand`** ✅. Faltan estos dos, que el

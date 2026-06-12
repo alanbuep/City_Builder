@@ -76,22 +76,21 @@ export class City {
   }
 
   /**
-   * Estado inicial: casi todo el mapa abierto (parecido al original), bloqueando
-   * solo las 4 PARCELAS DE LAS ESQUINAS — que quedan como territorio a conquistar.
-   * En grillas chicas (≤ 2×2 parcelas) queda todo abierto.
+   * Estado inicial: la MITAD izquierda del mapa abierta, con una FRANJA de parcelas
+   * bloqueadas TODA HACIA UN COSTADO (el lado derecho/este) — el territorio a
+   * conquistar. Vas expandiendo hacia ahí gastando fichas. Se bloquea ~la mitad de
+   * las columnas (mín. 1). En grillas chicas (< 3 columnas) queda todo abierto.
    */
   private initParcels(): void {
     const cols = this.parcelCols;
     const rows = this.parcelRows;
     this.parcelUnlocked = new Array(cols * rows).fill(true);
-    if (cols >= 3 && rows >= 3) {
-      for (const [px, pz] of [
-        [0, 0],
-        [cols - 1, 0],
-        [0, rows - 1],
-        [cols - 1, rows - 1],
-      ]) {
-        this.parcelUnlocked[pz * cols + px] = false;
+    if (cols >= 3) {
+      const lockedCols = Math.max(1, Math.floor(cols / 2));
+      for (let pz = 0; pz < rows; pz++) {
+        for (let px = cols - lockedCols; px < cols; px++) {
+          this.parcelUnlocked[pz * cols + px] = false;
+        }
       }
     }
   }

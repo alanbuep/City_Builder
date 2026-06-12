@@ -1172,34 +1172,48 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['el puente da acceso de calle a ambas orillas', c.hasRoadAccess(3, 4) && c.hasRoadAccess(5, 4)]);
 }
 
-// 44) Territorio por parcelas: arranca con el centro abierto y se expande con fichas.
+// 44) Territorio por parcelas: arranca con una FRANJA lateral bloqueada (hacia el
+// lado derecho/este) y se expande hacia ahí con fichas.
 {
   const city = new City(32, 32);
   const sim = new Simulation(city);
   const totalParcels = city.parcelCols * city.parcelRows;
-  checks.push(['el centro arranca desbloqueado', city.isUnlocked(16, 16) === true]);
-  checks.push(['las esquinas arrancan bloqueadas', city.isUnlocked(0, 0) === false]);
-  checks.push(['arranca casi todo abierto (solo 4 esquinas cerradas)', city.unlockedParcelCount() === totalParcels - 4]);
+  const lockedCols = Math.max(1, Math.floor(city.parcelCols / 2));
+  const lockedParcels = lockedCols * city.parcelRows;
+  checks.push(['el lado izquierdo arranca abierto', city.isUnlocked(0, 0) === true && city.isUnlocked(4, 16) === true]);
+  checks.push(['el costado derecho arranca bloqueado', city.isUnlocked(31, 16) === false]);
+  checks.push(['arranca con una franja lateral bloqueada', city.unlockedParcelCount() === totalParcels - lockedParcels]);
 
-  // Sin fichas no se puede desbloquear la esquina.
-  checks.push(['sin fichas no se desbloquea', sim.unlockTerritory(0, 0) === false]);
+  // La primera columna bloqueada (pegada a lo abierto), tile dentro de ella.
+  const lockX = (city.parcelCols - lockedCols) * 8; // x de la 1ª parcela cerrada
+  // Sin fichas no se puede desbloquear.
+  checks.push(['sin fichas no se desbloquea', sim.unlockTerritory(lockX, 0) === false]);
   // Una parcela ya abierta no se "desbloquea".
-  checks.push(['no se desbloquea algo ya abierto', sim.unlockTerritory(16, 16) === false]);
+  checks.push(['no se desbloquea algo ya abierto', sim.unlockTerritory(4, 4) === false]);
 
-  // Gano fichas superando catástrofes y abro la esquina (contigua a los bordes abiertos).
-  const cost = sim.territoryUnlockCost();
-  for (let i = 0; i < cost; i++) sim.recordDisaster();
-  console.log('[territorio] fichas:', sim.territoryTokens(), '| costo:', cost);
-  checks.push(['las catástrofes dan fichas de territorio', sim.territoryTokens() >= cost]);
-  const opened = sim.unlockTerritory(0, 0); // esquina (0,0), pegada a bordes abiertos
-  console.log('[territorio] abrió esquina:', opened, '| abiertas:', city.unlockedParcelCount());
-  checks.push(['se abre una esquina contigua pagando fichas', opened && city.isUnlocked(0, 0)]);
-  checks.push(['desbloquear gasta fichas', sim.territoryTokens() < cost]);
+  // Cada catástrofe superada vale DOBLE en fichas (2 c/u).
+  sim.recordDisaster();
+  checks.push(['una catástrofe da 2 fichas', sim.territoryTokens() === 2]);
+  checks.push(['el desglose atribuye las fichas a catástrofes', sim.territoryTokenSources().disasters === 2]);
 
-  // Guardar/cargar conserva el territorio (la esquina abierta + otra que sigue cerrada).
+  // Abro la parcela lateral (contigua a lo abierto) y se gastan fichas.
+  const before = sim.territoryTokens();
+  const firstCost = sim.territoryUnlockCost(); // 1ª parcela = 1
+  checks.push(['la primera parcela cuesta 1', firstCost === 1]);
+  const opened = sim.unlockTerritory(lockX, 0); // parcela lateral pegada a lo abierto
+  console.log('[territorio] abrió parcela:', opened, '| abiertas:', city.unlockedParcelCount());
+  checks.push(['se abre una parcela lateral contigua pagando fichas', opened && city.isUnlocked(lockX, 0)]);
+  checks.push(['desbloquear gasta fichas', sim.territoryTokens() === before - firstCost]);
+  // La rampa: la próxima parcela cuesta una ficha más.
+  checks.push(['la próxima parcela cuesta más (rampa)', sim.territoryUnlockCost() === firstCost + 1]);
+
+  // Guardar/cargar conserva el territorio Y la rampa de costo (territoryUnlocks).
   const city2 = new City(32, 32);
+  const sim2 = new Simulation(city2);
   city2.load(city.serialize());
-  checks.push(['guardar/cargar conserva el territorio', city2.isUnlocked(0, 0) === true && city2.isUnlocked(31, 31) === false]);
+  sim2.load(sim.serialize());
+  checks.push(['guardar/cargar conserva el territorio', city2.isUnlocked(lockX, 0) === true && city2.isUnlocked(31, 31) === false]);
+  checks.push(['guardar/cargar conserva la rampa de costo', sim2.territoryUnlockCost() === firstCost + 1]);
 }
 
 // 45) Ciudad nueva: la generación de terreno crea mar, playa, montañas y tierra.

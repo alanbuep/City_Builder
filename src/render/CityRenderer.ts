@@ -330,6 +330,12 @@ export class CityRenderer {
   private lockLabelMat!: THREE.SpriteMaterial;
 
   private ocean!: THREE.Mesh; // plano de océano infinito (se ubica del lado del mar)
+  private ground!: THREE.Mesh; // pasto decorativo infinito (se oculta si hay paisaje)
+  private sceneRef!: THREE.Scene; // para agregar el paisaje al cargarlo
+
+  // Paisaje completo de la ciudad: UN solo .glb gigante (cordillera, mar, colinas).
+  // Si existe, reemplaza el pasto/océano/terreno por-casilla. Ver docs/MODELS.md ★★★.
+  private hasLandscape = false;
 
   private cube = new THREE.BoxGeometry(1, 1, 1);
   private white = new THREE.Color(0xffffff);
@@ -347,6 +353,7 @@ export class CityRenderer {
     private grid: GridSpec,
   ) {
     scene.add(this.group);
+    this.sceneRef = scene;
 
     // Pasto que se extiende MUCHO más allá del área jugable (terreno "infinito":
     // así no se ve el plano flotando). El área donde se construye la marca la
@@ -360,6 +367,7 @@ export class CityRenderer {
     ground.position.y = -0.02; // apenas por debajo, para no competir con el terreno jugable
     ground.receiveShadow = true;
     scene.add(ground);
+    this.ground = ground;
 
     // Océano infinito: un plano de agua enorme que arranca en la costa y se va al
     // horizonte (así el mar no "se corta"). Se ubica del lado donde está el mar.
@@ -503,6 +511,36 @@ export class CityRenderer {
       );
     for (const f of required) load(f, false);
     for (const f of optional) load(f, true);
+    this.loadLandscape(loader);
+  }
+
+  /**
+   * Carga el PAISAJE completo (`landscape.glb`): un único modelo gigante con la
+   * cordillera, el mar, las colinas y la meseta plana central. NO se normaliza a
+   * 1×1 (respeta sus unidades 1:1) y se coloca en el origen. Si existe, oculta el
+   * pasto/océano decorativos y el terreno por-casilla (lo provee el paisaje). Si
+   * no está, el motor sigue con el terreno viejo sin avisar.
+   */
+  private loadLandscape(loader: GLTFLoader): void {
+    loader.load(
+      'models/landscape.glb',
+      (gltf) => {
+        const land = gltf.scene;
+        land.traverse((o) => {
+          if (o instanceof THREE.Mesh) o.receiveShadow = true;
+        });
+        land.position.set(0, 0, 0);
+        this.sceneRef.add(land);
+        this.hasLandscape = true;
+        this.ground.visible = false; // el paisaje ya trae su propio pasto
+        this.ocean.visible = false; // y su propio mar
+        if (this.modelsReady) this.redrawAll(); // saca los cubos de terreno por-casilla
+      },
+      undefined,
+      () => {
+        /* sin paisaje: el motor sigue con el terreno por-casilla (sin avisar) */
+      },
+    );
   }
 
   /**
@@ -538,6 +576,10 @@ export class CityRenderer {
    * lo extiende hacia afuera hasta el horizonte. Si ningún borde toca agua, lo oculta.
    */
   refreshOcean(): void {
+    if (this.hasLandscape) {
+      this.ocean.visible = false; // el mar lo trae el paisaje
+      return;
+    }
     const w = this.city.width;
     const h = this.city.height;
     const t = this.grid.tileSize;
@@ -875,6 +917,7 @@ export class CityRenderer {
 
   /** Aspecto del terreno natural (agua/montaña) de una casilla vacía. null = tierra normal. */
   private terrainAppearance(kind: TerrainKind, x: number, z: number): { color: THREE.Color; height: number; opacity: number } | null {
+    if (this.hasLandscape) return null; // el paisaje único reemplaza los cubos de terreno
     if (kind === 'water') {
       return { color: new THREE.Color(0x1565c0), height: 0.06, opacity: 0.78 };
     }
@@ -994,6 +1037,7 @@ export class CityRenderer {
 
   /** Instancia el modelo de un terreno (playa), cubriendo la casilla. null si no aplica. */
   private buildTerrainModel(terrain: TerrainKind, x: number, z: number): THREE.Object3D | null {
+    if (this.hasLandscape) return null; // el paisaje único ya dibuja montaña/mar/playa
     const file = TERRAIN_MODEL[terrain];
     if (!file) return null;
     const tmpl = this.models.get(file);

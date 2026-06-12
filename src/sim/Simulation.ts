@@ -59,7 +59,13 @@ export interface CityStats {
   science: { total: number; rate: number }; // puntos de ciencia acumulados + ritmo/mes
   hero: { active: boolean }; // ¿la ciudad tiene héroe (cuartel sano)?
   race: { active: boolean; tracks: number }; // ¿hay carrera en curso? + cuántos circuitos
-  territory: { tokens: number; unlocked: number; total: number }; // fichas + parcelas abiertas/total
+  territory: {
+    tokens: number;
+    unlocked: number;
+    total: number;
+    nextCost: number; // costo de la próxima parcela
+    sources: { tech: number; disasters: number; population: number }; // desglose de fichas ganadas
+  }; // fichas + parcelas abiertas/total
 }
 
 /** Detalle de UNA casilla, para el panel inspector. */
@@ -74,6 +80,7 @@ export interface TileInfo {
   locked: boolean; // territorio bloqueado (hay que desbloquear la parcela)
   unlockCost: number; // fichas 🗝️ para abrir esta parcela
   territoryTokens: number; // fichas disponibles
+  tokenSources: { tech: number; disasters: number; population: number }; // de dónde salen las fichas
   canUnlock: boolean; // ¿se puede abrir ya? (contigua a lo abierto + fichas suficientes)
   capacity: number;
   hasRoad: boolean;
@@ -157,6 +164,7 @@ export interface SimSave {
   science?: number; // puntos de ciencia acumulados (opcional: partidas viejas no lo tienen)
   disastersSurvived?: number; // catástrofes superadas (fichas de territorio)
   territorySpent?: number; // fichas de territorio ya gastadas
+  territoryUnlocks?: number; // parcelas que abrió el jugador (encarece la próxima)
   materials?: MaterialsSave; // stock de materiales (opcional: partidas viejas no lo tienen)
   construction?: Construction[]; // obras en curso (opcional)
   disasters?: DisasterSave; // catástrofes en curso (opcional)
@@ -214,6 +222,17 @@ const SERVICE_COST_PER_CITIZEN = 0.35; // costo de atender a cada habitante
 const UPGRADE_BASE_COST = 150; // mejorar zona (× nivel destino)
 const ROAD_UPGRADE_COST = 120; // mejorar carretera (× nivel destino, × casillas del tramo)
 
+// Economía de territorio (fichas 🗝️). Las fichas salen de TRES fuentes:
+//  • cada hito tecnológico desbloqueado (1 c/u),
+//  • cada catástrofe superada (vale DOBLE: sobrevivir es difícil),
+//  • cada HITO DE POBLACIÓN alcanzado (el motor del crecimiento de la ciudad).
+// Abrir parcelas cuesta cada vez más (rampa suave), así expandir es un logro.
+const DISASTER_TOKEN_VALUE = 2; // fichas por catástrofe superada
+const TERRITORY_BASE_COST = 1; // costo de la 1ª parcela (sube +1 por cada expansión)
+// Umbrales de población; cada uno alcanzado otorga 1 ficha. Suben rápido para que
+// las fichas acompañen el crecimiento sin regalarse.
+const POP_MILESTONES = [50, 150, 350, 700, 1200, 2000, 3200, 5000, 7500, 11000, 16000, 23000, 32000, 45000, 60000];
+
 export class Simulation {
   mode: GameMode = 'auto';
   money = START_MONEY;
@@ -259,9 +278,10 @@ export class Simulation {
   // El héroe: true si hay un cuartel (HeroHQ) sano. Mientras tanto, mitiga catástrofes.
   hasHero = false;
 
-  // Territorio: fichas 🗝️ (de hitos tecnológicos + desastres superados) para abrir parcelas.
+  // Territorio: fichas 🗝️ (hitos tecnológicos + desastres superados + hitos de población).
   disastersSurvived = 0; // catástrofes que atravesó la ciudad
   private territorySpent = 0; // fichas ya gastadas abriendo territorio
+  private territoryUnlocks = 0; // parcelas que abrió el jugador (encarece la próxima)
 
   // Circuitos de carrera: organizan "días de evento" que dan renta extra y atraen gente.
   raceTracks = 0; // circuitos sanos en la ciudad
@@ -493,14 +513,36 @@ export class Simulation {
     this.disastersSurvived++;
   }
 
-  /** Fichas 🗝️ disponibles: hitos tecnológicos + catástrofes superadas − ya gastadas. */
-  territoryTokens(): number {
-    return this.unlocked.size + this.disastersSurvived - this.territorySpent;
+  /** ¿Cuántos hitos de población alcanzó la ciudad? (cada uno da 1 ficha). */
+  private populationMilestones(): number {
+    let n = 0;
+    for (const m of POP_MILESTONES) if (this.population >= m) n++;
+    return n;
   }
 
-  /** Costo (en fichas) de abrir la próxima parcela: sube con cada expansión. */
+  /** Desglose de fichas 🗝️ GANADAS por fuente (para mostrarlo en la UI). */
+  territoryTokenSources(): { tech: number; disasters: number; population: number } {
+    return {
+      tech: this.unlocked.size,
+      disasters: this.disastersSurvived * DISASTER_TOKEN_VALUE,
+      population: this.populationMilestones(),
+    };
+  }
+
+  /** Total de fichas 🗝️ ganadas (las tres fuentes sumadas). */
+  private territoryTokensEarned(): number {
+    const s = this.territoryTokenSources();
+    return s.tech + s.disasters + s.population;
+  }
+
+  /** Fichas 🗝️ DISPONIBLES: las ganadas menos las ya gastadas en expandir. */
+  territoryTokens(): number {
+    return this.territoryTokensEarned() - this.territorySpent;
+  }
+
+  /** Costo (en fichas) de abrir la próxima parcela: sube +1 por cada expansión hecha. */
   territoryUnlockCost(): number {
-    return Math.max(1, this.city.unlockedParcelCount() - 3);
+    return TERRITORY_BASE_COST + this.territoryUnlocks;
   }
 
   /** Abre la parcela de (x,z) si es contigua a lo abierto y alcanzan las fichas. */
@@ -511,6 +553,7 @@ export class Simulation {
     if (this.territoryTokens() < cost) return false;
     this.city.unlockParcel(px, pz);
     this.territorySpent += cost;
+    this.territoryUnlocks++; // la próxima parcela costará una ficha más
     return true;
   }
 
@@ -557,6 +600,7 @@ export class Simulation {
       locked: !this.city.isUnlocked(x, z),
       unlockCost: this.territoryUnlockCost(),
       territoryTokens: this.territoryTokens(),
+      tokenSources: this.territoryTokenSources(),
       canUnlock:
         !this.city.isUnlocked(x, z) &&
         this.city.parcelCanUnlock(this.city.tileParcel(x, z).px, this.city.tileParcel(x, z).pz) &&
@@ -699,6 +743,7 @@ export class Simulation {
       science: this.science,
       disastersSurvived: this.disastersSurvived,
       territorySpent: this.territorySpent,
+      territoryUnlocks: this.territoryUnlocks,
       materials: this.materials.serialize(),
       construction: [...this.sites.values()],
       disasters: this.disasters.serialize(),
@@ -713,6 +758,7 @@ export class Simulation {
     this.science = data.science ?? 0;
     this.disastersSurvived = data.disastersSurvived ?? 0;
     this.territorySpent = data.territorySpent ?? 0;
+    this.territoryUnlocks = data.territoryUnlocks ?? 0;
     this.materials.load(data.materials);
     this.sites.clear();
     for (const s of data.construction ?? []) this.sites.set(this.siteKey(s.x, s.z), s);
@@ -727,6 +773,7 @@ export class Simulation {
     this.science = 0;
     this.disastersSurvived = 0;
     this.territorySpent = 0;
+    this.territoryUnlocks = 0;
     this.unlocked.clear();
     this.materials.reset();
     this.sites.clear();
@@ -1330,6 +1377,8 @@ export class Simulation {
         tokens: this.territoryTokens(),
         unlocked: this.city.unlockedParcelCount(),
         total: this.city.parcelCols * this.city.parcelRows,
+        nextCost: this.territoryUnlockCost(),
+        sources: this.territoryTokenSources(),
       },
     };
   }
