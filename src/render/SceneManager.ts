@@ -47,6 +47,13 @@ export class SceneManager {
       MIDDLE: THREE.MOUSE.PAN,
       RIGHT: THREE.MOUSE.ROTATE,
     };
+    // Touch (celular): un dedo desplaza la cámara, dos dedos = zoom + rotación.
+    // Con una herramienta de construcción activa, Game pasa el dedo a "pintar"
+    // vía setTouchCameraPan(false) y la cámara queda solo en dos dedos.
+    this.controls.touches = {
+      ONE: THREE.TOUCH.PAN,
+      TWO: THREE.TOUCH.DOLLY_ROTATE,
+    };
     this.controls.update();
 
     // --- Luces ---
@@ -77,6 +84,15 @@ export class SceneManager {
   /** Ajusta hasta dónde se puede desplazar el foco (≈ tamaño del mapa). */
   setPanLimit(half: number): void {
     this.panLimit = half;
+  }
+
+  /**
+   * En touch: con la herramienta de selección un dedo mueve la cámara; con una
+   * herramienta de construcción el dedo pinta, así que la cámara se saca del
+   * gesto de un dedo (queda en dos dedos: zoom + rotación).
+   */
+  setTouchCameraPan(enabled: boolean): void {
+    this.controls.touches.ONE = enabled ? THREE.TOUCH.PAN : (-1 as unknown as THREE.TOUCH);
   }
 
   /** Se llama una vez por frame. */

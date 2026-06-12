@@ -207,6 +207,8 @@ const TOOL_LABEL = (() => {
 export class Toolbar {
   current: Tool = 'select';
   currentResStyle: ResidentialStyle = 'default'; // estilo elegido para pintar residencial
+  /** Avisa cuando cambia la herramienta (Game ajusta el gesto táctil de cámara). */
+  onToolChange?: (tool: Tool) => void;
 
   private container: HTMLElement;
   private currentEl: HTMLElement;
@@ -314,11 +316,17 @@ export class Toolbar {
     this.hideTip();
   }
 
-  /** Ubica el popup a la derecha de la barra de categorías. */
+  /** Ubica el popup a la derecha de la barra; si no entra (celular), abajo. */
   private positionPopup(): void {
+    const w = this.popup.offsetWidth || 240;
     const r = this.container.getBoundingClientRect();
-    this.popup.style.left = `${r.right + 8}px`;
-    this.popup.style.top = `${r.top}px`;
+    if (r.right + 8 + w <= window.innerWidth - 8) {
+      this.popup.style.left = `${r.right + 8}px`;
+      this.popup.style.top = `${r.top}px`;
+    } else {
+      this.popup.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+      this.popup.style.top = `${r.bottom + 8}px`;
+    }
   }
 
   /** Muestra qué herramienta está activa debajo de la barra de categorías. */
@@ -370,6 +378,7 @@ export class Toolbar {
     if (style !== undefined) this.currentResStyle = style;
     this.updateCurrentLabel();
     this.closePopup();
+    this.onToolChange?.(tool);
   }
 
   /** Vuelve a la herramienta de selección 🔍 (p. ej. al apretar Escape). */
