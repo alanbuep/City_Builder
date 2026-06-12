@@ -18,6 +18,7 @@ import {
 } from './types';
 import { TECHS, BASE_UNLOCKED, TechDef, TechMetric, METRIC_LABEL } from './Tech';
 import { MISSIONS, MissionDef, MissionMetrics, MissionStatus } from './Missions';
+import { levelForXp, xpRange, XP_REWARD, LEVEL_MONEY, LevelStatus } from './Level';
 import { MaterialSystem, MaterialsSave } from './Materials';
 import { DisasterSystem, DisasterSave } from './Disasters';
 
@@ -167,6 +168,7 @@ export interface SimSave {
   territorySpent?: number; // fichas de territorio ya gastadas
   territoryUnlocks?: number; // parcelas que abrió el jugador (encarece la próxima)
   missions?: string[]; // misiones cumplidas (opcional: partidas viejas no lo tienen)
+  xp?: number; // XP del nivel de ciudad (opcional: partidas viejas la estiman al cargar)
   materials?: MaterialsSave; // stock de materiales (opcional: partidas viejas no lo tienen)
   construction?: Construction[]; // obras en curso (opcional)
   disasters?: DisasterSave; // catástrofes en curso (opcional)
@@ -288,6 +290,10 @@ export class Simulation {
   // Misiones cumplidas (monotónico, como la tecnología) + cola de avisos.
   private missionsDone = new Set<string>();
   private justCompletedMissions: MissionDef[] = [];
+
+  // Nivel de ciudad (estilo BuildIt): XP acumulada + cola de subidas de nivel.
+  xp = 0;
+  private justLeveled: number[] = [];
 
   // Circuitos de carrera: organizan "días de evento" que dan renta extra y atraen gente.
   raceTracks = 0; // circuitos sanos en la ciudad
@@ -428,6 +434,7 @@ export class Simulation {
         if (s.status !== 'building') continue;
         if (++s.progress >= s.duration) {
           this.city.setLevel(s.x, s.z, s.targetLevel);
+          this.addXp(XP_REWARD.zoneLevel * s.targetLevel);
           this.sites.delete(k); // (sin aviso: el crecimiento de zonas sería spam)
         }
         continue;
@@ -443,6 +450,7 @@ export class Simulation {
         this.city.placeBuilding(s.x, s.z, s.target, s.size);
         this.sites.delete(k);
         this.justBuilt.push(s.target);
+        this.addXp(XP_REWARD.buildBase + Math.round(TILE_DEF[s.target].cost * XP_REWARD.buildPerCost));
       }
     }
   }
@@ -518,6 +526,58 @@ export class Simulation {
   /** Registra que ocurrió una catástrofe (suma una ficha de territorio por superarla). */
   recordDisaster(): void {
     this.disastersSurvived++;
+    this.addXp(XP_REWARD.disaster);
+  }
+
+  // --- Nivel de ciudad (XP) ---
+
+  get level(): number {
+    return levelForXp(this.xp);
+  }
+
+  /** Suma XP; si la ciudad sube de nivel, premia con dinero y (salvo silent) avisa. */
+  addXp(amount: number, silent = false): void {
+    const before = this.level;
+    this.xp += amount;
+    for (let lv = before + 1; lv <= this.level; lv++) {
+      this.money += LEVEL_MONEY * lv;
+      if (!silent) this.justLeveled.push(lv);
+    }
+  }
+
+  /** Niveles alcanzados desde la última llamada (para festejar y vaciar). */
+  drainLevelUps(): number[] {
+    const out = this.justLeveled;
+    this.justLeveled = [];
+    return out;
+  }
+
+  getLevelStatus(): LevelStatus {
+    const level = this.level;
+    const { from, to } = xpRange(level);
+    return {
+      level,
+      xp: this.xp,
+      from,
+      to,
+      progress: to > from ? Math.max(0, Math.min(1, (this.xp - from) / (to - from))) : 1,
+    };
+  }
+
+  /**
+   * Estimación de XP para partidas guardadas ANTES de que existiera el nivel:
+   * reconstruye un puntaje razonable a partir de lo ya logrado, así una ciudad
+   * grande no arranca en nivel 1 (y no pierde features que ya venía usando).
+   */
+  private estimateXp(): number {
+    let missionXp = 0;
+    for (const m of MISSIONS) if (this.missionsDone.has(m.id)) missionXp += XP_REWARD.mission;
+    return Math.round(
+      this.population * 3 +
+        this.unlocked.size * XP_REWARD.tech +
+        this.disastersSurvived * XP_REWARD.disaster +
+        missionXp,
+    );
   }
 
   /** ¿Cuántos hitos de población alcanzó la ciudad? (cada uno da 1 ficha). */
@@ -758,6 +818,7 @@ export class Simulation {
       construction: [...this.sites.values()],
       disasters: this.disasters.serialize(),
       missions: [...this.missionsDone],
+      xp: this.xp,
     };
   }
 
@@ -776,6 +837,10 @@ export class Simulation {
     this.disasters.load(data.disasters);
     this.missionsDone = new Set(data.missions ?? []);
     this.refresh();
+    // Partidas de antes del sistema de nivel: estimar la XP de lo ya logrado
+    // (necesita la población, así que va DESPUÉS de refresh()).
+    this.xp = data.xp ?? this.estimateXp();
+    this.justLeveled = [];
   }
 
   /** Reinicia a una ciudad nueva (mantiene el modo de juego). */
@@ -789,6 +854,8 @@ export class Simulation {
     this.unlocked.clear();
     this.missionsDone.clear();
     this.justCompletedMissions = [];
+    this.xp = 0;
+    this.justLeveled = [];
     this.materials.reset();
     this.sites.clear();
     this.disasters.reset();
@@ -827,7 +894,10 @@ export class Simulation {
       if (this.unlocked.has(tech.id)) continue;
       if (this.metricValue(tech.metric) >= tech.target) {
         this.unlocked.add(tech.id);
-        if (!silent) this.justUnlocked.push(tech);
+        if (!silent) {
+          this.justUnlocked.push(tech);
+          this.addXp(XP_REWARD.tech);
+        }
       }
     }
   }
@@ -902,7 +972,10 @@ export class Simulation {
       if (m[mission.metric] >= mission.target) {
         this.missionsDone.add(mission.id);
         this.money += mission.reward.money ?? 0; // las fichas salen solas de tokenSources
-        if (!silent) this.justCompletedMissions.push(mission);
+        if (!silent) {
+          this.justCompletedMissions.push(mission);
+          this.addXp(XP_REWARD.mission);
+        }
       }
     }
   }

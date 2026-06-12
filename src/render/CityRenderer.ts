@@ -9,6 +9,7 @@ import { DisasterFx } from './DisasterFx';
 import { HeroFx } from './HeroFx';
 import { RaceFx } from './RaceFx';
 import { AirFx } from './AirFx';
+import { TrafficFx } from './TrafficFx';
 
 // Edificios con chimenea: emiten humo (fábricas, centrales e industria pesada).
 const SMOKING: Set<TileType> = new Set([
@@ -306,6 +307,7 @@ export class CityRenderer {
   private heroFx: HeroFx; // el héroe volador (cuando la ciudad tiene cuartel)
   private raceFx: RaceFx; // autos de carrera durante los días de evento
   private airFx: AirFx; // aviones desde aeropuertos + dirigible de ambiente
+  private trafficFx: TrafficFx; // autitos por las calles + peatones en las veredas
   private lastAnim = 0;
 
   // Marcadores flotantes (nubes de sugerencia / obras de zona).
@@ -446,6 +448,7 @@ export class CityRenderer {
     this.heroFx = new HeroFx(scene, extent);
     this.raceFx = new RaceFx(scene);
     this.airFx = new AirFx(scene, extent);
+    this.trafficFx = new TrafficFx(scene, city, grid);
 
     this.loadModels();
   }
@@ -823,6 +826,12 @@ export class CityRenderer {
     this.heroFx.update(dt);
     this.raceFx.update(dt);
     this.airFx.update(dt);
+    this.trafficFx.update(dt);
+  }
+
+  /** Más población = más autos y peatones en la calle. */
+  setCrowd(population: number): void {
+    this.trafficFx.setPopulation(population);
   }
 
   /** Carrera en curso + circuitos (anclas en casillas) por donde corren los autos. */

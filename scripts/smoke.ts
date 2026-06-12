@@ -1290,6 +1290,34 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['misión cumplida queda cumplida aunque baje la métrica', sim.getMissions().find((m) => m.def.id === 'vecinos')!.done]);
 }
 
+// 47) Nivel de ciudad (XP): arranca en 1, sube con XP (con premio en dinero),
+// se conserva al guardar/cargar, y las partidas viejas (sin xp) lo estiman.
+{
+  const city = new City(16, 16);
+  const sim = new Simulation(city);
+  checks.push(['ciudad nueva arranca en nivel 1', sim.level === 1]);
+
+  const moneyBefore = sim.money;
+  sim.addXp(200); // pasa los umbrales de nivel 2 (60) y 3 (150)
+  console.log('[nivel] xp 200 → nivel:', sim.level, '| Δdinero:', sim.money - moneyBefore);
+  checks.push(['con 200 XP llega a nivel 3', sim.level === 3]);
+  checks.push(['subir de nivel premia con dinero', sim.money > moneyBefore]);
+  checks.push(['avisa las subidas de nivel', sim.drainLevelUps().join(',') === '2,3']);
+
+  // Guardar/cargar conserva la XP exacta.
+  const sim2 = new Simulation(new City(16, 16));
+  sim2.load(sim.serialize());
+  checks.push(['guardar/cargar conserva la XP', sim2.xp === sim.xp && sim2.level === 3]);
+  checks.push(['al cargar no re-festeja niveles', sim2.drainLevelUps().length === 0]);
+
+  // Partida vieja (sin campo xp): estima un nivel acorde a lo logrado.
+  const old = sim.serialize();
+  delete old.xp;
+  const sim3 = new Simulation(new City(16, 16));
+  sim3.load(old);
+  checks.push(['partida vieja sin xp no rompe (estima ≥ 0)', sim3.xp >= 0 && sim3.level >= 1]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);

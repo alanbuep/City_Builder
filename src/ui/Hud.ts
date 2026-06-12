@@ -65,6 +65,8 @@ export class Hud {
   private missionCountEl!: HTMLElement;
   private missionListEl!: HTMLElement;
   private missionSig = ''; // para no reconstruir el DOM si nada cambió
+  private levelEl!: HTMLElement;
+  private levelFill!: HTMLElement;
   private pauseBtn!: HTMLButtonElement;
   private speedBtns: HTMLButtonElement[] = [];
   private modeBtn!: HTMLButtonElement;
@@ -91,6 +93,8 @@ export class Hud {
     const panel = document.createElement('div');
     panel.className = 'panel';
     panel.innerHTML = `
+      <div class="stat"><span>⭐ Nivel</span><span class="val" id="hud-level">—</span></div>
+      <div class="tech-bar" style="margin-bottom:6px"><div class="tech-fill" id="hud-level-fill" style="background:#ffd54f"></div></div>
       <div class="stat"><span>📅 Fecha</span><span class="val" id="hud-date">—</span></div>
       <div class="stat"><span>💰 Dinero</span><span class="val" id="hud-money">—</span></div>
       <div class="stat"><span>👥 Población</span><span class="val" id="hud-pop">—</span></div>
@@ -100,6 +104,8 @@ export class Hud {
       <div class="stat"><span>📉 Desempleo</span><span class="val" id="hud-unemp">—</span></div>
     `;
     container.appendChild(panel);
+    this.levelEl = panel.querySelector('#hud-level')!;
+    this.levelFill = panel.querySelector('#hud-level-fill')!;
     this.dateEl = panel.querySelector('#hud-date')!;
     this.moneyEl = panel.querySelector('#hud-money')!;
     this.popEl = panel.querySelector('#hud-pop')!;
@@ -351,6 +357,13 @@ export class Hud {
       `Fichas 🗝️ para expandir territorio\n` +
       `Disponibles: ${terr.tokens} · próxima parcela: ${terr.nextCost}\n` +
       `Ganadas: ${sr.tech} hitos tecnológicos + ${sr.disasters} catástrofes + ${sr.population} hitos de población + ${sr.missions} misiones`;
+  }
+
+  /** Actualiza el nivel de ciudad (⭐) y su barra de XP. */
+  setLevel(s: { level: number; xp: number; from: number; to: number; progress: number }): void {
+    this.levelEl.textContent = `${s.level}`;
+    this.levelEl.title = s.to > s.from ? `XP: ${s.xp} / ${s.to} para el nivel ${s.level + 1}` : `XP: ${s.xp} (nivel máximo)`;
+    this.levelFill.style.width = `${Math.round(s.progress * 100)}%`;
   }
 
   /** Actualiza el panel de misiones: cumplidas + las próximas 3 con progreso. */

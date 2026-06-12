@@ -10,6 +10,7 @@ import { Sound } from './ui/Sound';
 import { DisasterMenu } from './ui/DisasterMenu';
 import { City } from './sim/City';
 import { Simulation } from './sim/Simulation';
+import { FEATURE_LEVEL, LEVEL_MONEY } from './sim/Level';
 import { TILE_DEF, TileType, isZone, Tile } from './sim/types';
 import { SaveData, SAVE_VERSION, saveLocal, loadLocal, exportFile, importFile } from './storage/SaveStore';
 import { GridSpec } from './grid';
@@ -793,6 +794,19 @@ export class Game {
       this.notifications.toast('🎯', `¡Misión cumplida: ${mission.name}! Ganaste ${reward}.`);
       this.sound.play('mission');
     }
+    for (const lv of this.sim.drainLevelUps()) {
+      this.notifications.toast('⭐', `¡Tu ciudad subió al nivel ${lv}! Premio: $${LEVEL_MONEY * lv}.`);
+      this.sound.play('mission');
+      if (lv === FEATURE_LEVEL.disasters) {
+        this.notifications.toast('🌪️', '¡Se desbloquearon las catástrofes! (menú de la izquierda)');
+      }
+    }
+    // El menú de catástrofes recién aparece cuando la ciudad tiene nivel para eso.
+    const disasterBar = document.getElementById('disasterbar');
+    if (disasterBar) {
+      const show = this.sim.level >= FEATURE_LEVEL.disasters;
+      if ((disasterBar.style.display === 'none') === show) disasterBar.style.display = show ? '' : 'none';
+    }
 
     this.cityRenderer.setMarkers(this.sim.getMarkers()); // nubes: obras + sugerencias de mejora
     const burning = this.sim.disasters.burningCells();
@@ -826,9 +840,12 @@ export class Game {
     }
     this.cityRenderer.setBubbles(this.bubbles);
     this.cityRenderer.animate(now); // pulso del resaltado de selección
-    this.hud.update(this.sim.getStats());
+    const stats = this.sim.getStats();
+    this.cityRenderer.setCrowd(stats.population); // autitos y peatones según la gente
+    this.hud.update(stats);
     this.hud.setTech(this.sim.getTechStatus());
     this.hud.setMissions(this.sim.getMissions());
+    this.hud.setLevel(this.sim.getLevelStatus());
     this.notifications.update(this.sim.getAlerts());
     this.scene.render();
   };
@@ -914,6 +931,7 @@ export class Game {
    * siempre un incendio (la más común), y rara vez algo mayor.
    */
   private maybeSpontaneousDisaster(): void {
+    if (this.sim.level < FEATURE_LEVEL.disasters) return; // todavía no se desbloquearon
     if (!this.disastersRandom) return;
     if (Math.random() >= SPONTANEOUS_FIRE_CHANCE) return;
     const roll = Math.random();

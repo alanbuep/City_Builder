@@ -228,6 +228,19 @@ apenas existan. Convención: "frente" hacia −Z.
 > Ya implementado: el aeropuerto emite aviones; el circuito hace "días de evento"
 > con autos dando vueltas y renta extra; el dirigible es ambiente permanente.
 
+### 0e) Tráfico urbano y peatones (YA funcionan con cajas instanciadas) 🚗🚶
+`render/TrafficFx.ts` hace circular autitos por las calles (mano derecha, doblan
+en los cruces) y peatones por las veredas, con InstancedMesh (un draw call por
+tipo). Hoy son CAJAS de colores; con modelos low-poly quedaría BuildIt total.
+**OJO**: como van instanciados, ideal UN solo mesh con pocos vértices (<300) y
+material simple (vertex colors o un único color — el motor pinta cada instancia
+con `setColorAt`, así que conviene modelarlos en GRIS CLARO neutro para teñirlos).
+Convención: "frente" hacia +X, apoyados en y=0, largo del auto ≈ 0.34 (la casilla mide 1).
+| archivo | estado | notas |
+|---|---|---|
+| `car_small` | procedural (cajas) | Autito genérico (sedán/hatch redondeadito). Se tiñe por instancia: modelar en gris claro. |
+| `person` | procedural (cajas) | Peatón low-poly (cápsula con cabeza basta). También teñido por instancia. |
+
 ### 1) Puentes y cruces de agua (desbloquea construir cruzando ríos)
 | archivo | tamaño | notas |
 |---|---|---|
