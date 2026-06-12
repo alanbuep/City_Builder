@@ -772,6 +772,11 @@ export class Game {
       this.notifications.toast(tech.icon, `¡Desbloqueado: ${tech.name}!`);
     }
     if (this.sim.drainBuilt().length) this.notifications.toast('🏗️', '¡Obra terminada!');
+    for (const mission of this.sim.drainCompletedMissions()) {
+      const r = mission.reward;
+      const reward = [r.money ? `$${r.money}` : '', r.tokens ? `${r.tokens} 🗝️` : ''].filter(Boolean).join(' + ');
+      this.notifications.toast('🎯', `¡Misión cumplida: ${mission.name}! Ganaste ${reward}.`);
+    }
 
     this.cityRenderer.setMarkers(this.sim.getMarkers()); // nubes: obras + sugerencias de mejora
     const burning = this.sim.disasters.burningCells();
@@ -807,6 +812,7 @@ export class Game {
     this.cityRenderer.animate(now); // pulso del resaltado de selección
     this.hud.update(this.sim.getStats());
     this.hud.setTech(this.sim.getTechStatus());
+    this.hud.setMissions(this.sim.getMissions());
     this.notifications.update(this.sim.getAlerts());
     this.scene.render();
   };

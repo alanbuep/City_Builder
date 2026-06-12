@@ -395,7 +395,7 @@ export class Inspector {
     const lines = [
       'Esta parcela todavía no es tuya. Desbloqueala para construir acá.',
       `🗝️ Fichas: <b>${info.territoryTokens}</b> · cuesta <b>${info.unlockCost}</b>`,
-      `<i style="opacity:.8">Ganadas: 🔬 ${s.tech} hitos + 🌠 ${s.disasters} catástrofes + 👥 ${s.population} población.</i>`,
+      `<i style="opacity:.8">Ganadas: 🔬 ${s.tech} hitos + 🌠 ${s.disasters} catástrofes + 👥 ${s.population} población + 🎯 ${s.missions} misiones.</i>`,
       '<i style="opacity:.8">Cada parcela nueva cuesta una ficha más que la anterior.</i>',
     ];
     this.bodyEl.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');

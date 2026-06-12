@@ -1,4 +1,5 @@
 import { CityStats, GameMode, TechStatus } from '../sim/Simulation';
+import { MissionStatus } from '../sim/Missions';
 import { Material, MATERIALS, MATERIAL_ICON, MATERIAL_LABEL, CORRALON_CAP } from '../sim/types';
 
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -18,6 +19,9 @@ const TECH_INFO =
   'empleo industrial, tesoro o CIENCIA. La barra muestra cuánto te falta para el próximo desbloqueo. ' +
   'La ciencia 🔬 la generan los laboratorios/observatorios/parque científico (necesitan energía) y se acumula ' +
   'para habilitar lo más avanzado, como el Centro Espacial.';
+const MISSION_INFO =
+  'Misiones: metas concretas que guían tu ciudad. Cumplirlas da dinero o fichas 🗝️ ' +
+  'de territorio. Se muestran las próximas 3; las cumplidas quedan contadas arriba.';
 const MAT_INFO =
   'Materiales de tu ciudad: total = reserva inicial + lo guardado en los corralones. ' +
   'Cada corralón almacena hasta ' + CORRALON_CAP + ' de cada material. Conectá productoras por CALLE a un corralón para fabricar más. ' +
@@ -58,6 +62,9 @@ export class Hud {
   private techNextEl!: HTMLElement;
   private techBarWrap!: HTMLElement;
   private techFill!: HTMLElement;
+  private missionCountEl!: HTMLElement;
+  private missionListEl!: HTMLElement;
+  private missionSig = ''; // para no reconstruir el DOM si nada cambió
   private pauseBtn!: HTMLButtonElement;
   private speedBtns: HTMLButtonElement[] = [];
   private modeBtn!: HTMLButtonElement;
@@ -70,6 +77,7 @@ export class Hud {
     document.body.appendChild(this.tooltip);
 
     this.buildStats(container);
+    this.buildMissions(container);
     this.buildRci(container);
     this.buildUtilities(container);
     this.buildCoverage(container);
@@ -176,6 +184,20 @@ export class Hud {
     this.matEls = {} as Record<Material, HTMLElement>;
     for (const m of MATERIALS) this.matEls[m] = panel.querySelector(`#mat-${m}`)!;
     this.matCapEl = panel.querySelector('#mat-cap')!;
+  }
+
+  private buildMissions(container: HTMLElement): void {
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <div class="panel-head"><span style="opacity:0.85">🎯 Misiones</span></div>
+      <div class="tech-count" id="mission-count">—</div>
+      <div id="mission-list"></div>
+    `;
+    container.appendChild(panel);
+    this.addInfo(panel.querySelector('.panel-head')!, MISSION_INFO);
+    this.missionCountEl = panel.querySelector('#mission-count')!;
+    this.missionListEl = panel.querySelector('#mission-list')!;
   }
 
   private buildTech(container: HTMLElement): void {
@@ -328,7 +350,36 @@ export class Hud {
     this.territoryEl.title =
       `Fichas 🗝️ para expandir territorio\n` +
       `Disponibles: ${terr.tokens} · próxima parcela: ${terr.nextCost}\n` +
-      `Ganadas: ${sr.tech} hitos tecnológicos + ${sr.disasters} catástrofes + ${sr.population} hitos de población`;
+      `Ganadas: ${sr.tech} hitos tecnológicos + ${sr.disasters} catástrofes + ${sr.population} hitos de población + ${sr.missions} misiones`;
+  }
+
+  /** Actualiza el panel de misiones: cumplidas + las próximas 3 con progreso. */
+  setMissions(missions: MissionStatus[]): void {
+    const done = missions.filter((m) => m.done).length;
+    const active = missions.filter((m) => !m.done).slice(0, 3);
+    const sig = `${done}|${active.map((m) => `${m.def.id}:${Math.round(m.progress * 100)}`).join(',')}`;
+    if (sig === this.missionSig) return;
+    this.missionSig = sig;
+
+    this.missionCountEl.textContent = `Cumplidas: ${done} / ${missions.length}`;
+    if (!active.length) {
+      this.missionListEl.innerHTML = '<b style="color:#7CFC9A">✓ ¡Todas cumplidas!</b>';
+      return;
+    }
+    this.missionListEl.innerHTML = active
+      .map((m) => {
+        const r = m.def.reward;
+        const reward = [r.money ? `$${r.money.toLocaleString('es')}` : '', r.tokens ? `${r.tokens} 🗝️` : '']
+          .filter(Boolean)
+          .join(' + ');
+        return (
+          `<div class="tech-next" style="margin-bottom:2px">${m.def.icon} <b>${m.def.name}</b> ` +
+          `<span style="opacity:.7; font-size:11px">(${reward})</span><br>` +
+          `<span style="opacity:.75; font-size:11px">${m.def.desc}</span></div>` +
+          `<div class="tech-bar" style="margin-bottom:6px"><div class="tech-fill" style="width:${Math.round(m.progress * 100)}%"></div></div>`
+        );
+      })
+      .join('');
   }
 
   /** Actualiza el panel de tecnología: hitos logrados y el próximo desbloqueo. */

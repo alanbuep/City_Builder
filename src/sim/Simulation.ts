@@ -17,6 +17,7 @@ import {
   ROAD_CAPACITY,
 } from './types';
 import { TECHS, BASE_UNLOCKED, TechDef, TechMetric, METRIC_LABEL } from './Tech';
+import { MISSIONS, MissionDef, MissionMetrics, MissionStatus } from './Missions';
 import { MaterialSystem, MaterialsSave } from './Materials';
 import { DisasterSystem, DisasterSave } from './Disasters';
 
@@ -64,7 +65,7 @@ export interface CityStats {
     unlocked: number;
     total: number;
     nextCost: number; // costo de la próxima parcela
-    sources: { tech: number; disasters: number; population: number }; // desglose de fichas ganadas
+    sources: { tech: number; disasters: number; population: number; missions: number }; // desglose de fichas ganadas
   }; // fichas + parcelas abiertas/total
 }
 
@@ -80,7 +81,7 @@ export interface TileInfo {
   locked: boolean; // territorio bloqueado (hay que desbloquear la parcela)
   unlockCost: number; // fichas 🗝️ para abrir esta parcela
   territoryTokens: number; // fichas disponibles
-  tokenSources: { tech: number; disasters: number; population: number }; // de dónde salen las fichas
+  tokenSources: { tech: number; disasters: number; population: number; missions: number }; // de dónde salen las fichas
   canUnlock: boolean; // ¿se puede abrir ya? (contigua a lo abierto + fichas suficientes)
   capacity: number;
   hasRoad: boolean;
@@ -165,6 +166,7 @@ export interface SimSave {
   disastersSurvived?: number; // catástrofes superadas (fichas de territorio)
   territorySpent?: number; // fichas de territorio ya gastadas
   territoryUnlocks?: number; // parcelas que abrió el jugador (encarece la próxima)
+  missions?: string[]; // misiones cumplidas (opcional: partidas viejas no lo tienen)
   materials?: MaterialsSave; // stock de materiales (opcional: partidas viejas no lo tienen)
   construction?: Construction[]; // obras en curso (opcional)
   disasters?: DisasterSave; // catástrofes en curso (opcional)
@@ -283,6 +285,10 @@ export class Simulation {
   private territorySpent = 0; // fichas ya gastadas abriendo territorio
   private territoryUnlocks = 0; // parcelas que abrió el jugador (encarece la próxima)
 
+  // Misiones cumplidas (monotónico, como la tecnología) + cola de avisos.
+  private missionsDone = new Set<string>();
+  private justCompletedMissions: MissionDef[] = [];
+
   // Circuitos de carrera: organizan "días de evento" que dan renta extra y atraen gente.
   raceTracks = 0; // circuitos sanos en la ciudad
   raceActive = false; // ¿hay una carrera en curso este mes?
@@ -343,6 +349,7 @@ export class Simulation {
     this.advanceRaces(); // días de evento de carrera (renta extra mientras dura)
     this.applyEconomy();
     this.evaluateTech(false);
+    this.evaluateMissions(false);
     this.month++;
   }
 
@@ -521,18 +528,21 @@ export class Simulation {
   }
 
   /** Desglose de fichas 🗝️ GANADAS por fuente (para mostrarlo en la UI). */
-  territoryTokenSources(): { tech: number; disasters: number; population: number } {
+  territoryTokenSources(): { tech: number; disasters: number; population: number; missions: number } {
+    let missions = 0;
+    for (const m of MISSIONS) if (this.missionsDone.has(m.id)) missions += m.reward.tokens ?? 0;
     return {
       tech: this.unlocked.size,
       disasters: this.disastersSurvived * DISASTER_TOKEN_VALUE,
       population: this.populationMilestones(),
+      missions,
     };
   }
 
-  /** Total de fichas 🗝️ ganadas (las tres fuentes sumadas). */
+  /** Total de fichas 🗝️ ganadas (todas las fuentes sumadas). */
   private territoryTokensEarned(): number {
     const s = this.territoryTokenSources();
-    return s.tech + s.disasters + s.population;
+    return s.tech + s.disasters + s.population + s.missions;
   }
 
   /** Fichas 🗝️ DISPONIBLES: las ganadas menos las ya gastadas en expandir. */
@@ -747,6 +757,7 @@ export class Simulation {
       materials: this.materials.serialize(),
       construction: [...this.sites.values()],
       disasters: this.disasters.serialize(),
+      missions: [...this.missionsDone],
     };
   }
 
@@ -763,6 +774,7 @@ export class Simulation {
     this.sites.clear();
     for (const s of data.construction ?? []) this.sites.set(this.siteKey(s.x, s.z), s);
     this.disasters.load(data.disasters);
+    this.missionsDone = new Set(data.missions ?? []);
     this.refresh();
   }
 
@@ -775,6 +787,8 @@ export class Simulation {
     this.territorySpent = 0;
     this.territoryUnlocks = 0;
     this.unlocked.clear();
+    this.missionsDone.clear();
+    this.justCompletedMissions = [];
     this.materials.reset();
     this.sites.clear();
     this.disasters.reset();
@@ -789,6 +803,7 @@ export class Simulation {
     this.computeInfluence();
     this.computeTraffic();
     this.evaluateTech(true); // re-deriva los desbloqueos del estado actual, sin avisos
+    this.evaluateMissions(true); // partidas viejas: completa (y paga) lo ya logrado, sin avisos
   }
 
   // --- Tecnología / desbloqueos ---
@@ -854,6 +869,63 @@ export class Simulation {
         isMoney: next.metric === 'money',
       },
     };
+  }
+
+  // --- Misiones / objetivos ---
+
+  /** Foto de las métricas que miran las misiones. */
+  private missionMetrics(): MissionMetrics {
+    let skyscrapers = 0;
+    this.city.forEach((tile) => {
+      if (tile.type === TileType.Residential && tile.level >= 4) skyscrapers++;
+    });
+    return {
+      population: this.population,
+      money: this.money,
+      jobs: this.jobs,
+      science: this.science,
+      disastersSurvived: this.disastersSurvived,
+      techCount: this.unlocked.size,
+      skyscrapers,
+      parcelsBought: this.territoryUnlocks,
+    };
+  }
+
+  /**
+   * Marca (y premia) las misiones cuya meta ya se alcanzó. `silent` evita los
+   * avisos (al cargar una partida vieja se completan de una, sin festejo).
+   */
+  private evaluateMissions(silent: boolean): void {
+    const m = this.missionMetrics();
+    for (const mission of MISSIONS) {
+      if (this.missionsDone.has(mission.id)) continue;
+      if (m[mission.metric] >= mission.target) {
+        this.missionsDone.add(mission.id);
+        this.money += mission.reward.money ?? 0; // las fichas salen solas de tokenSources
+        if (!silent) this.justCompletedMissions.push(mission);
+      }
+    }
+  }
+
+  /** Misiones cumplidas desde la última llamada (para avisar y vaciar). */
+  drainCompletedMissions(): MissionDef[] {
+    const out = this.justCompletedMissions;
+    this.justCompletedMissions = [];
+    return out;
+  }
+
+  /** Estado de todas las misiones, en orden, para el panel del HUD. */
+  getMissions(): MissionStatus[] {
+    const m = this.missionMetrics();
+    return MISSIONS.map((def) => {
+      const value = m[def.metric];
+      return {
+        def,
+        done: this.missionsDone.has(def.id),
+        value,
+        progress: Math.max(0, Math.min(1, value / def.target)),
+      };
+    });
   }
 
   /** Avisos activos: qué le falta o conviene a la ciudad ahora mismo. */

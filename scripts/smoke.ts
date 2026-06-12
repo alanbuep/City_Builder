@@ -1254,6 +1254,42 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['la playa generada sí es edificable', beachBuildable]);
 }
 
+// 46) Misiones: arrancan incumplidas, se cumplen al llegar a la meta (con premio),
+// son monotónicas y se conservan al guardar/cargar.
+{
+  const city = new City(16, 16);
+  const sim = new Simulation(city);
+  const m0 = sim.getMissions();
+  checks.push(['ciudad nueva: ninguna misión cumplida', m0.every((m) => !m.done)]);
+
+  // Casas con calle para superar los 25 habitantes de la primera misión.
+  for (let x = 0; x < 12; x++) city.setType(x, 5, TileType.Road);
+  for (let x = 0; x < 12; x++) {
+    city.setType(x, 4, TileType.Residential);
+    city.setLevel(x, 4, 2);
+  }
+  const moneyBefore = sim.money;
+  sim.tick();
+  const vecinos = sim.getMissions().find((m) => m.def.id === 'vecinos')!;
+  console.log('[misiones] pop:', sim.population, '| vecinos done:', vecinos.done, '| Δdinero:', sim.money - moneyBefore);
+  checks.push(['misión "Primeros vecinos" se cumple al superar 25 hab', vecinos.done]);
+  checks.push(['cumplirla avisa (toast)', sim.drainCompletedMissions().some((m) => m.id === 'vecinos')]);
+
+  // Guardar/cargar conserva las misiones cumplidas (y no vuelve a avisar).
+  const city2 = new City(16, 16);
+  const sim2 = new Simulation(city2);
+  city2.load(city.serialize());
+  sim2.load(sim.serialize());
+  const again = sim2.getMissions().find((m) => m.def.id === 'vecinos')!;
+  checks.push(['guardar/cargar conserva misiones cumplidas', again.done]);
+  checks.push(['al cargar no re-avisa misiones viejas', sim2.drainCompletedMissions().length === 0]);
+
+  // Monotónica: si la población después baja, la misión sigue cumplida.
+  for (let x = 0; x < 12; x++) city.setType(x, 4, TileType.Empty);
+  sim.tick();
+  checks.push(['misión cumplida queda cumplida aunque baje la métrica', sim.getMissions().find((m) => m.def.id === 'vecinos')!.done]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);
