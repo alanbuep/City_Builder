@@ -8,9 +8,13 @@ export interface SaveMenuCallbacks {
 
 /** Botonera de guardado: guardar / cargar / nueva / exportar / importar. */
 export class SaveMenu {
+  /** El panel de botones (para colgarle extras, como el de sonido). */
+  readonly panel: HTMLElement;
+
   constructor(container: HTMLElement, callbacks: SaveMenuCallbacks) {
     const panel = document.createElement('div');
     panel.className = 'panel controls';
+    this.panel = panel;
 
     // Input de archivo oculto para importar.
     const fileInput = document.createElement('input');

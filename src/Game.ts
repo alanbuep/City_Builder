@@ -6,6 +6,7 @@ import { Hud } from './ui/Hud';
 import { Inspector } from './ui/Inspector';
 import { Notifications } from './ui/Notifications';
 import { SaveMenu } from './ui/SaveMenu';
+import { Sound } from './ui/Sound';
 import { DisasterMenu } from './ui/DisasterMenu';
 import { City } from './sim/City';
 import { Simulation } from './sim/Simulation';
@@ -54,6 +55,7 @@ export class Game {
   private hud: Hud;
   private inspector: Inspector;
   private notifications: Notifications;
+  private sound = new Sound();
   private disastersRandom = false; // ¿se desatan catástrofes al azar?
 
   // Burbujas de opinión de los vecinos (se renuevan cada tanto).
@@ -117,13 +119,14 @@ export class Game {
         this.disastersRandom = enabled;
       },
     });
-    new SaveMenu(document.getElementById('savebar') ?? hudContainer, {
+    const saveMenu = new SaveMenu(document.getElementById('savebar') ?? hudContainer, {
       onSave: () => this.save(),
       onLoad: () => this.loadSaved(),
       onNew: () => this.newCity(),
       onExport: () => exportFile(this.buildSaveData()),
       onImport: (file) => this.importCity(file),
     });
+    this.sound.attachButton(saveMenu.panel);
 
     const dom = this.scene.renderer.domElement;
     dom.addEventListener('pointermove', (e) => this.onPointerMove(e));
@@ -518,6 +521,7 @@ export class Game {
     const prevLevel = tile.level;
     const prevBuilding = tile.anchor !== null;
     if (this.city.setType(coord.x, coord.z, tool)) {
+      this.sound.play(tool === TileType.Empty ? 'demolish' : 'build');
       this.sim.spend(cost);
       // Al zonificar residencial, le aplico el estilo de barrio elegido.
       if (tool === TileType.Residential) this.city.setResidentialStyle(coord.x, coord.z, this.toolbar.currentResStyle);
@@ -536,6 +540,7 @@ export class Game {
     // Si tocó una celda secundaria de un edificio grande, seleccionar su ancla.
     const anchor = this.city.getTile(coord.x, coord.z).anchor;
     this.selected = anchor ? { x: anchor.x, z: anchor.z } : coord;
+    this.sound.play('select');
     this.inspector.show();
     this.refreshSelection();
   }
@@ -615,10 +620,12 @@ export class Game {
     if (!this.selected) return;
     if (this.sim.unlockTerritory(this.selected.x, this.selected.z)) {
       this.notifications.toast('🗝️', '¡Nuevo territorio desbloqueado!');
+      this.sound.play('unlock');
       this.cityRenderer.setLockedRegions(this.city.lockedRegions());
       this.refreshSelection();
     } else {
       this.notifications.toast('🔒', 'Faltan fichas o no es contigua a tu ciudad.');
+      this.sound.play('error');
     }
   }
 
@@ -627,12 +634,15 @@ export class Game {
     if (!this.selected) return;
     if (this.sim.repair(this.selected.x, this.selected.z)) {
       this.notifications.toast('🛠️', '¡Edificio reparado!');
+      this.sound.play('repair');
     }
   }
 
   /** Da el OK a la obra seleccionada (cobra dinero + materiales y empieza a construir). */
   private startSelected(): void {
-    if (this.selected) this.sim.startConstruction(this.selected.x, this.selected.z);
+    if (this.selected && this.sim.startConstruction(this.selected.x, this.selected.z)) {
+      this.sound.play('build');
+    }
   }
 
   /** Inicia todas las obras pendientes que se puedan pagar (botón "Iniciar obras"). */
@@ -644,6 +654,7 @@ export class Game {
     if (!this.selected) return;
     const prevType = this.city.getTile(this.selected.x, this.selected.z).type;
     if (this.city.setType(this.selected.x, this.selected.z, TileType.Empty) && prevType !== TileType.Empty) {
+      this.sound.play('demolish');
       const refund = Math.round(TILE_DEF[prevType].cost * DEMOLISH_REFUND);
       if (refund > 0) this.sim.money += refund;
     }
@@ -770,12 +781,17 @@ export class Game {
     this.toolbar.setUnlocked(this.sim.unlockedTypes());
     for (const tech of this.sim.drainUnlocks()) {
       this.notifications.toast(tech.icon, `¡Desbloqueado: ${tech.name}!`);
+      this.sound.play('unlock');
     }
-    if (this.sim.drainBuilt().length) this.notifications.toast('🏗️', '¡Obra terminada!');
+    if (this.sim.drainBuilt().length) {
+      this.notifications.toast('🏗️', '¡Obra terminada!');
+      this.sound.play('done');
+    }
     for (const mission of this.sim.drainCompletedMissions()) {
       const r = mission.reward;
       const reward = [r.money ? `$${r.money}` : '', r.tokens ? `${r.tokens} 🗝️` : ''].filter(Boolean).join(' + ');
       this.notifications.toast('🎯', `¡Misión cumplida: ${mission.name}! Ganaste ${reward}.`);
+      this.sound.play('mission');
     }
 
     this.cityRenderer.setMarkers(this.sim.getMarkers()); // nubes: obras + sugerencias de mejora
@@ -857,8 +873,10 @@ export class Game {
   private triggerFire(): void {
     this.sim.recordDisaster();
     const cell = this.sim.disasters.igniteRandom(Math.random);
-    if (cell) this.notifications.toast('🔥', '¡Se desató un incendio!');
-    else this.notifications.toast('🤷', 'No hay edificios para incendiar.');
+    if (cell) {
+      this.notifications.toast('🔥', '¡Se desató un incendio!');
+      this.sound.play('disaster');
+    } else this.notifications.toast('🤷', 'No hay edificios para incendiar.');
   }
 
   /** Lanza un meteorito: cae sobre un objetivo y, al impactar, arrasa e incendia. */
@@ -866,6 +884,7 @@ export class Game {
     this.sim.recordDisaster();
     const target = this.sim.disasters.pickMeteorTarget(Math.random);
     this.notifications.toast('🌠', '¡Meteorito en camino!');
+    this.sound.play('disaster');
     this.cityRenderer.playMeteor(target.x, target.z, () => {
       const r = this.sim.disasters.strikeMeteor(target.x, target.z);
       this.notifications.toast('💥', `¡Impacto! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
@@ -878,6 +897,7 @@ export class Game {
     const r = this.sim.disasters.spawnTornado(Math.random);
     this.cityRenderer.playTornado(r.path ?? []);
     this.notifications.toast('🌪️', `¡Tornado! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
+    this.sound.play('disaster');
   }
 
   /** Desata un huracán que castiga toda la ciudad. */
@@ -886,6 +906,7 @@ export class Game {
     const r = this.sim.disasters.spawnHurricane(Math.random);
     this.cityRenderer.playHurricane();
     this.notifications.toast('🌀', `¡Huracán! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
+    this.sound.play('disaster');
   }
 
   /**

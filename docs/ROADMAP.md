@@ -200,13 +200,17 @@ Que la ciudad no sea toda igual (pedido del usuario).
 
 ## Fase C — Progresión y meta-juego
 
-### Hito 31 — Niveles de ciudad y recompensas 🏆
+### Hito 31 — Niveles de ciudad y recompensas 🏆 ⏳ (en progreso)
+
+> **Hecho:** **Expansión de mapa** (territorio por parcelas con fichas 🗝️ de
+> hitos tecnológicos + catástrofes + hitos de población + misiones).
+> **Misiones/objetivos** (`sim/Missions.ts`): 14 metas progresivas con premios
+> en dinero y fichas, panel 🎯 en el HUD (las próximas 3 con barra), toast al
+> cumplir, persisten en el save y son monotónicas (smoke #46).
+> **Pendiente:** ¿XP/nivel de ciudad explícito? ¿logros/medallas cosméticos?
+
 - **Nivel de ciudad / XP**: ganás XP por construir, crecer, superar catástrofes.
   Subir de nivel da recompensas (dinero, desbloqueos, slots de expansión).
-- **Expansión de mapa**: empezar chico y **comprar** parcelas nuevas con dinero/
-  nivel (muy BuildIt). Hoy el mapa es fijo 32×32.
-- **Misiones/objetivos**: lista de metas ("llegá a 500 hab", "sobreviví un
-  incendio", "lanzá el cohete") que guían y recompensan.
 - **Logros**: medallas por hitos.
 
 ### Hito 32 — Economía avanzada y comercio (opcional)
@@ -216,7 +220,13 @@ Que la ciudad no sea toda igual (pedido del usuario).
 ---
 
 ## Transversal (cuando convenga)
-- **Sonido**: música ambiente + SFX (construir, catástrofe, desbloqueo).
+- **Sonido**: ✅ SFX sintetizados con WebAudio (`ui/Sound.ts`: construir, demoler,
+  obra lista, desbloqueo, misión, catástrofe, reparar, seleccionar, error) +
+  botón 🔊/🔇 persistente en la barra de guardado. Pendiente: música ambiente.
+- **Celular**: ✅ controles táctiles (un dedo cámara con 🔍 / pinta con herramienta,
+  dos dedos zoom+rotar, tap = acción), UI adaptada a pantalla chica (barra
+  horizontal arriba, HUD plegable 📊), PWA instalable con modo offline (`sw.js` +
+  manifest) y workflow de deploy a GitHub Pages (`.github/workflows/deploy.yml`).
 - **Performance**: si la ciudad crece mucho, instanciar modelos repetidos
   (InstancedMesh) en vez de un mesh por casilla.
 - **Cuentas/nube (Fase 2 de guardado)**: solo cuando haya usuarios reales; reusar
