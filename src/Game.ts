@@ -38,6 +38,8 @@ const SPONTANEOUS_FIRE_CHANCE = 0.015; // prob. por mes de un incendio espontán
 const BUBBLE_INTERVAL_MS = 3200; // cada cuánto rotan las burbujas de opinión de los vecinos
 const MAX_BUBBLES = 4; // cuántas burbujas se ven a la vez (para no saturar)
 const DEMOLISH_REFUND = 0.5; // al demoler se recupera este % del costo (para no quedar trabado)
+const LONG_PRESS_MS = 320; // touch: mantener apretado para empezar a pintar
+const TAP_SLOP_PX = 14; // touch: hasta cuánto puede moverse el dedo y seguir siendo un tap
 
 /**
  * El director de orquesta: crea la simulación, el render, el picking y la UI,
@@ -67,9 +69,11 @@ export class Game {
   private dragPath: DragStep[] = []; // trazo del arrastre actual (permite retroceder)
   private selected: Coord | null = null;
 
-  // Touch (celular): gesto en curso, para distinguir un TAP de un arrastre de cámara.
+  // Touch (celular): un dedo en movimiento es SIEMPRE cámara. Construir es por
+  // TAP (una casilla) o por MANTENER APRETADO y arrastrar (pintar un trazo).
   private touchDown: { x: number; y: number; coord: Coord | null } | null = null;
   private touchCount = 0; // dedos apoyados (2+ = gesto de cámara, no construye)
+  private longPress: number | null = null; // timer del "mantener apretado"
 
   // Selección de carretera para mejorar: tramo recto elegido arrastrando.
   private roadSelection: Coord[] = [];
@@ -141,15 +145,16 @@ export class Game {
       this.roadDragStart = null;
     });
     window.addEventListener('pointercancel', () => {
-      this.cancelPaint();
+      this.clearLongPress();
+      if (this.painting) this.cityRenderer.refreshOcean();
+      this.painting = false;
+      this.dragPath = [];
       this.touchDown = null;
       this.touchCount = 0;
       this.roadDragging = false;
       this.roadDragStart = null;
+      this.scene.controls.enabled = true;
     });
-    // En touch, el gesto de un dedo depende de la herramienta activa.
-    this.toolbar.onToolChange = (tool) => this.scene.setTouchCameraPan(tool === 'select');
-    this.scene.setTouchCameraPan(this.toolbar.current === 'select');
     window.addEventListener('keydown', (e) => {
       // Escape: vuelve a la herramienta de selección 🔍 (para clickear edificios y ver su info).
       if (e.key === 'Escape') {
@@ -178,6 +183,13 @@ export class Game {
   // --- Entrada del jugador ---
 
   private onPointerMove(e: PointerEvent): void {
+    // Touch: si el dedo se movió antes del "mantener apretado", es cámara —
+    // se cancela el inicio de pintado pendiente.
+    if (e.pointerType === 'touch' && this.touchDown && !this.painting && !this.roadDragging) {
+      if (Math.hypot(e.clientX - this.touchDown.x, e.clientY - this.touchDown.y) > TAP_SLOP_PX) {
+        this.clearLongPress();
+      }
+    }
     const coord = this.picker.tileAt(e);
     this.updateHover(coord);
     if (this.roadDragging && coord) {
@@ -383,38 +395,73 @@ export class Game {
   }
 
   // --- Touch (celular) ---
-  // Un dedo: con 🔍 mueve la cámara y un TAP selecciona; con calles/zonas/demoler
-  // el dedo PINTA (la cámara pasa a dos dedos); los edificios se plopean al soltar
-  // (tap), así un arrastre que empieza sobre el mapa no construye sin querer.
+  // Un dedo arrastrando = SIEMPRE cámara (OrbitControls). TAP = acción puntual
+  // (construir una casilla / plopear una obra / seleccionar). MANTENER APRETADO
+  // (~⅓ s, sin mover) = pintar un trazo arrastrando (o elegir el tramo de una
+  // calle con 🔍) — ahí la cámara se apaga hasta soltar. Dos dedos = zoom/rotar.
 
   private onTouchDown(e: PointerEvent): void {
     this.touchCount++;
     if (this.touchCount > 1) {
-      // Llegó un segundo dedo: era un gesto de cámara → deshacer lo pintado.
-      this.cancelPaint();
+      // Llegó un segundo dedo: es zoom/rotación → se corta el trazo en curso
+      // (lo ya pintado queda: fue deliberado, arrancó con "mantener apretado").
+      this.clearLongPress();
+      if (this.painting) this.cityRenderer.refreshOcean();
+      this.painting = false;
+      this.dragPath = [];
       this.touchDown = null;
       this.roadDragging = false;
       this.roadDragStart = null;
+      this.scene.controls.enabled = true;
       return;
     }
     const coord = this.picker.tileAt(e);
     this.touchDown = { x: e.clientX, y: e.clientY, coord };
+    if (!coord) return;
+
     const tool = this.toolbar.current;
-    if (tool === 'select' || !coord) return;
-    if (isPaintTool(tool) || !this.requiresRoad(tool)) {
-      this.painting = true;
-      this.dragPath = [];
-      this.paintAt(coord);
+    const paints = tool !== 'select' && (isPaintTool(tool) || !this.requiresRoad(tool));
+    const roadStretch = tool === 'select' && this.city.getTile(coord.x, coord.z).type === TileType.Road;
+    if (!paints && !roadStretch) return;
+
+    // "Mantener apretado": si el dedo no se movió en este lapso, deja de ser
+    // cámara y empieza el trazo (pintar / elegir tramo de calle).
+    this.longPress = window.setTimeout(() => {
+      this.longPress = null;
+      this.scene.controls.enabled = false;
+      navigator.vibrate?.(15); // feedback: "ahora estás dibujando"
+      if (paints) {
+        this.painting = true;
+        this.dragPath = [];
+        this.paintAt(coord);
+      } else {
+        this.roadDragging = true;
+        this.roadDragStart = coord;
+        this.roadSelection = [coord];
+        this.selected = coord;
+        this.inspector.show();
+        this.refreshSelection();
+      }
+    }, LONG_PRESS_MS);
+  }
+
+  private clearLongPress(): void {
+    if (this.longPress !== null) {
+      window.clearTimeout(this.longPress);
+      this.longPress = null;
     }
   }
 
   private onTouchUp(e: PointerEvent): void {
     this.touchCount = Math.max(0, this.touchCount - 1);
+    this.clearLongPress();
+    this.scene.controls.enabled = true;
     const down = this.touchDown;
     this.touchDown = null;
     if (!down) return;
+    if (this.painting || this.roadDragging) return; // terminó un trazo (el reset general es en pointerup)
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
-    if (moved > 14) return; // fue un arrastre (cámara o pintado), no un tap
+    if (moved > TAP_SLOP_PX) return; // fue un paneo de cámara, no un tap
     if (this.dismissBubbleAt(e)) return;
     const tool = this.toolbar.current;
     const coord = this.picker.tileAt(e) ?? down.coord;
@@ -435,27 +482,14 @@ export class Game {
       }
       return;
     }
-    if (!isPaintTool(tool) && this.requiresRoad(tool)) {
-      this.placeConstructionSite(coord, tool, TILE_DEF[tool].size ?? 1);
+    if (isPaintTool(tool) || !this.requiresRoad(tool)) {
+      // Tap con calle/zona/demoler/terreno: pinta UNA casilla.
+      this.dragPath = [];
+      this.paintAt(coord);
+      this.cityRenderer.refreshOcean(); // por si fue agua en un borde
+      return;
     }
-  }
-
-  /** Deshace el trazo de pintado en curso (era un gesto de cámara, no una obra). */
-  private cancelPaint(): void {
-    if (!this.painting) return;
-    for (let i = this.dragPath.length - 1; i >= 0; i--) {
-      const step = this.dragPath[i];
-      if (step.prevBuilding) {
-        this.city.setType(step.x, step.z, TileType.Empty); // no recrear un edificio a medias
-      } else {
-        this.city.setType(step.x, step.z, step.prevType);
-        this.city.setLevel(step.x, step.z, step.prevLevel);
-      }
-      this.sim.money += step.cost;
-    }
-    this.painting = false;
-    this.dragPath = [];
-    this.cityRenderer.refreshOcean();
+    this.placeConstructionSite(coord, tool, TILE_DEF[tool].size ?? 1);
   }
 
   /** Abre una obra (cartel) de S×S: ocupa el terreno gratis; se construye al dar el OK. */

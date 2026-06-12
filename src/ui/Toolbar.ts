@@ -207,8 +207,6 @@ const TOOL_LABEL = (() => {
 export class Toolbar {
   current: Tool = 'select';
   currentResStyle: ResidentialStyle = 'default'; // estilo elegido para pintar residencial
-  /** Avisa cuando cambia la herramienta (Game ajusta el gesto táctil de cámara). */
-  onToolChange?: (tool: Tool) => void;
 
   private container: HTMLElement;
   private currentEl: HTMLElement;
@@ -378,7 +376,6 @@ export class Toolbar {
     if (style !== undefined) this.currentResStyle = style;
     this.updateCurrentLabel();
     this.closePopup();
-    this.onToolChange?.(tool);
   }
 
   /** Vuelve a la herramienta de selección 🔍 (p. ej. al apretar Escape). */

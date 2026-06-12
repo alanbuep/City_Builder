@@ -263,8 +263,12 @@ export class TrafficFx {
       this.rescanIn = RESCAN_S;
     }
 
-    // Cuántos agentes "merece" la ciudad ahora mismo.
-    const carTarget = this.roads.length >= 4 ? Math.min(MAX_CARS, 3 + Math.floor(this.roads.length / 5) + Math.floor(this.population / 50)) : 0;
+    // Cuántos agentes "merece" la ciudad: sin habitantes no hay quién maneje
+    // (las calles vacías recién pintadas no generan tráfico).
+    const carTarget =
+      this.roads.length >= 4 && this.population > 0
+        ? Math.min(MAX_CARS, Math.floor(this.roads.length / 4), 2 + Math.floor(this.population / 30))
+        : 0;
     const pedTarget = this.roads.length >= 4 ? Math.min(MAX_PEDS, Math.floor(this.population / 12)) : 0;
     this.syncPool(this.carAgents, carTarget, CAR_COLORS);
     this.syncPool(this.pedAgents, pedTarget, PED_COLORS);
