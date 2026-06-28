@@ -1,4 +1,4 @@
-import { TileType, Tile, TerrainKind, ResidentialStyle, RES_STYLE, maxLevelOf } from './types';
+import { TileType, Tile, TerrainKind, ResidentialStyle, RES_STYLE, TILE_DEF, isZone, maxLevelOf } from './types';
 
 /** Una casilla construida, para guardar. Las vacías no se guardan. */
 export interface TileSave {
@@ -10,6 +10,7 @@ export interface TileSave {
   anchor: { x: number; z: number } | null;
   damaged?: boolean; // ruina por catástrofe (opcional: partidas viejas no lo tienen)
   style?: ResidentialStyle; // estilo del barrio residencial (opcional)
+  orientation?: number; // hacia dónde mira el frente (0-3); se omite si es 0 (opcional)
 }
 
 /** Una casilla con terreno no normal (agua/montaña), para guardar. */
@@ -26,6 +27,7 @@ export interface CitySave {
   tiles: TileSave[];
   terrain?: TerrainSave[]; // opcional: las partidas viejas no lo tienen (todo 'land')
   parcels?: boolean[]; // territorio desbloqueado por parcela (opcional: viejas = todo abierto)
+  oriented?: boolean; // este guardado ya trae la orientación de cada edificio (las viejas no → se calcula al cargar)
 }
 
 /** Lado (en casillas) de cada "parcela" de territorio que se desbloquea de a una. */
@@ -61,6 +63,7 @@ export class City {
       size: 1,
       damaged: false,
       style: 'default',
+      orientation: 0,
     }));
     this.terrain = new Array(width * height).fill('land');
     this.initParcels();
@@ -229,6 +232,7 @@ export class City {
     tile.size = 1;
     tile.damaged = false;
     tile.style = 'default';
+    tile.orientation = 0;
     this.dirty.add(this.index(x, z));
     return true;
   }
@@ -287,6 +291,7 @@ export class City {
         tile.size = size;
         tile.damaged = false;
         tile.style = 'default';
+        tile.orientation = 0;
         this.dirty.add(this.index(cx, cz));
       }
     }
@@ -309,6 +314,7 @@ export class City {
         t.size = 1;
         t.damaged = false;
         t.style = 'default';
+        t.orientation = 0;
         this.dirty.add(this.index(ax + dx, az + dz));
       }
     }
@@ -354,12 +360,14 @@ export class City {
     const terrain: TerrainSave[] = [];
     this.forEach((tile, x, z) => {
       if (tile.type !== TileType.Empty) {
-        tiles.push({ x, z, type: tile.type, level: tile.level, size: tile.size, anchor: tile.anchor, damaged: tile.damaged, style: tile.style });
+        const t: TileSave = { x, z, type: tile.type, level: tile.level, size: tile.size, anchor: tile.anchor, damaged: tile.damaged, style: tile.style };
+        if (tile.orientation) t.orientation = tile.orientation; // 0 (norte) se omite
+        tiles.push(t);
       }
       const k = this.terrain[this.index(x, z)];
       if (k !== 'land') terrain.push({ x, z, kind: k });
     });
-    return { width: this.width, height: this.height, tiles, terrain, parcels: [...this.parcelUnlocked] };
+    return { width: this.width, height: this.height, tiles, terrain, parcels: [...this.parcelUnlocked], oriented: true };
   }
 
   /** Vacía toda la grilla y el terreno (y marca todo para redibujar). */
@@ -372,6 +380,7 @@ export class City {
       t.size = 1;
       t.damaged = false;
       t.style = 'default';
+      t.orientation = 0;
       this.terrain[i] = 'land';
       this.dirty.add(i);
     }
@@ -390,6 +399,7 @@ export class City {
       tile.anchor = t.anchor ?? null;
       tile.damaged = t.damaged ?? false;
       tile.style = t.style ?? 'default';
+      tile.orientation = t.orientation ?? 0;
       this.dirty.add(this.index(t.x, t.z));
     }
     for (const t of data.terrain ?? []) {
@@ -402,5 +412,84 @@ export class City {
     } else {
       this.unlockAllParcels(); // partidas viejas (sin parcelas) = todo abierto
     }
+    // Partidas viejas (sin orientación guardada): oriento cada edificio hacia su
+    // calle UNA vez, así dejan de mirar todos al norte.
+    if (!data.oriented) this.backfillOrientations();
+  }
+
+  // --- Orientación (hacia dónde mira el frente) ---
+
+  /** ¿La casilla (x,z) es una calle? (con chequeo de límites). */
+  private isRoadAt(x: number, z: number): boolean {
+    return this.inBounds(x, z) && this.getTile(x, z).type === TileType.Road;
+  }
+
+  /**
+   * Orientación (0=N, 1=E, 2=S, 3=O) para que el FRENTE de un edificio S×S anclado
+   * en (x,z) mire a la calle pegada al footprint. Cuenta calles en cada uno de los
+   * 4 lados y elige el que más tenga (desempate N→E→S→O). null si no hay calle al lado.
+   */
+  orientationToRoad(x: number, z: number, size = 1): number | null {
+    let n = 0, e = 0, s = 0, w = 0;
+    for (let d = 0; d < size; d++) {
+      if (this.isRoadAt(x + d, z - 1)) n++; // borde norte
+      if (this.isRoadAt(x + d, z + size)) s++; // borde sur
+      if (this.isRoadAt(x - 1, z + d)) w++; // borde oeste
+      if (this.isRoadAt(x + size, z + d)) e++; // borde este
+    }
+    const max = Math.max(n, e, s, w);
+    if (max === 0) return null;
+    if (n === max) return 0;
+    if (e === max) return 1;
+    if (s === max) return 2;
+    return 3;
+  }
+
+  /** Orientación actual del edificio en (x,z) (resuelta a su ancla). */
+  getOrientation(x: number, z: number): number {
+    const t = this.getTile(x, z);
+    const ax = t.anchor ? t.anchor.x : x;
+    const az = t.anchor ? t.anchor.z : z;
+    return this.getTile(ax, az).orientation;
+  }
+
+  /** Fija la orientación (0-3) del edificio en (x,z), redibujando todo su footprint. */
+  setOrientation(x: number, z: number, o: number): void {
+    if (!this.inBounds(x, z)) return;
+    const t = this.getTile(x, z);
+    const ax = t.anchor ? t.anchor.x : x;
+    const az = t.anchor ? t.anchor.z : z;
+    const anchor = this.getTile(ax, az);
+    const no = ((o % 4) + 4) % 4;
+    if (anchor.orientation === no) return;
+    anchor.orientation = no;
+    const size = anchor.size;
+    for (let dz = 0; dz < size; dz++) {
+      for (let dx = 0; dx < size; dx++) {
+        if (this.inBounds(ax + dx, az + dz)) this.dirty.add(this.index(ax + dx, az + dz));
+      }
+    }
+  }
+
+  /** Gira el edificio en (x,z) un cuarto de vuelta horario (botón 🔄 a mano). */
+  rotateTile(x: number, z: number): void {
+    this.setOrientation(x, z, this.getOrientation(x, z) + 1);
+  }
+
+  /** ¿Este tipo tiene un "frente" que conviene orientar a la calle? */
+  private orientable(tile: Tile): boolean {
+    if (tile.type === TileType.Empty || tile.type === TileType.Road || tile.type === TileType.Construction) return false;
+    if (TILE_DEF[tile.type].decoration) return false; // árboles/rocas: rotación libre por variedad
+    if (isZone(tile.type)) return tile.level > 0; // un solar vacío todavía no tiene edificio
+    return true;
+  }
+
+  /** Orienta hacia su calle todos los edificios que aún miran al norte (ciudades viejas). */
+  private backfillOrientations(): void {
+    this.forEach((tile, x, z) => {
+      if (this.isSubCell(x, z) || !this.orientable(tile)) return;
+      const o = this.orientationToRoad(x, z, tile.size);
+      if (o !== null && o !== tile.orientation) this.setOrientation(x, z, o);
+    });
   }
 }

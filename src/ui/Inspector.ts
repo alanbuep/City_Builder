@@ -107,6 +107,7 @@ export interface InspectorCallbacks {
   onUpgrade: () => void;
   onRepair: () => void; // reparar un edificio dañado por una catástrofe
   onUnlock: () => void; // desbloquear la parcela de territorio
+  onRotate: () => void; // girar el edificio (hacia dónde mira el frente)
   onDemolish: () => void;
   onStart: () => void; // dar el OK a una obra
   onExportKeep: (delta: number) => void; // ajustar el stock mínimo de exportación
@@ -125,6 +126,7 @@ export class Inspector {
   private upgradeBtn: HTMLButtonElement;
   private repairBtn: HTMLButtonElement;
   private unlockBtn: HTMLButtonElement;
+  private rotateBtn: HTMLButtonElement;
   private demolishBtn: HTMLButtonElement;
   private exMinusBtn: HTMLButtonElement;
   private exPlusBtn: HTMLButtonElement;
@@ -146,6 +148,7 @@ export class Inspector {
         <button class="ctrl insp-start"></button>
         <button class="ctrl insp-repair"></button>
         <button class="ctrl insp-unlock"></button>
+        <button class="ctrl insp-rotate" title="Girar el edificio (cambia hacia dónde mira el frente)">🔄 Girar</button>
         <button class="ctrl insp-upgrade"></button>
         <button class="ctrl insp-demolish">🧨 Demoler</button>
       </div>
@@ -158,6 +161,7 @@ export class Inspector {
     this.upgradeBtn = this.root.querySelector('.insp-upgrade')!;
     this.repairBtn = this.root.querySelector('.insp-repair')!;
     this.unlockBtn = this.root.querySelector('.insp-unlock')!;
+    this.rotateBtn = this.root.querySelector('.insp-rotate')!;
     this.demolishBtn = this.root.querySelector('.insp-demolish')!;
     this.exMinusBtn = this.root.querySelector('.insp-exminus')!;
     this.exPlusBtn = this.root.querySelector('.insp-explus')!;
@@ -167,6 +171,7 @@ export class Inspector {
     this.upgradeBtn.addEventListener('click', () => callbacks.onUpgrade());
     this.repairBtn.addEventListener('click', () => callbacks.onRepair());
     this.unlockBtn.addEventListener('click', () => callbacks.onUnlock());
+    this.rotateBtn.addEventListener('click', () => callbacks.onRotate());
     this.demolishBtn.addEventListener('click', () => callbacks.onDemolish());
     this.exMinusBtn.addEventListener('click', () => callbacks.onExportKeep(-20));
     this.exPlusBtn.addEventListener('click', () => callbacks.onExportKeep(20));
@@ -189,6 +194,7 @@ export class Inspector {
     this.startBtn.style.display = 'none'; // solo aparece en las obras
     this.repairBtn.style.display = 'none'; // solo en ruinas
     this.unlockBtn.style.display = 'none'; // solo en territorio bloqueado
+    this.rotateBtn.style.display = 'none'; // solo en edificios con frente
     this.exMinusBtn.style.display = 'none'; // solo en la terminal de exportación
     this.exPlusBtn.style.display = 'none';
 
@@ -385,6 +391,9 @@ export class Inspector {
     this.bodyEl.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
 
     this.updateUpgradeButton(info, money);
+    // Girar: para edificios con un "frente" (no terreno, ni calles, ni decoración).
+    this.rotateBtn.style.display =
+      info.type !== TileType.Empty && info.type !== TileType.Road && !def.decoration ? '' : 'none';
     this.demolishBtn.style.display = info.type === TileType.Empty ? 'none' : '';
   }
 
@@ -480,6 +489,7 @@ export class Inspector {
     this.upgradeBtn.style.display = 'none';
     this.repairBtn.style.display = 'none';
     this.unlockBtn.style.display = 'none';
+    this.rotateBtn.style.display = 'none';
     this.exMinusBtn.style.display = 'none';
     this.exPlusBtn.style.display = 'none';
     this.demolishBtn.style.display = '';

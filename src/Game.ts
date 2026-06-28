@@ -145,6 +145,7 @@ export class Game {
       onUpgrade: () => this.upgradeSelected(),
       onRepair: () => this.repairSelected(),
       onUnlock: () => this.unlockSelectedTerritory(),
+      onRotate: () => this.rotateSelected(),
       onDemolish: () => this.demolishSelected(),
       onStart: () => this.startSelected(),
       onExportKeep: (delta) => this.sim.setExportKeep(this.sim.exportKeep + delta),
@@ -689,6 +690,14 @@ export class Game {
       this.notifications.toast('🔒', 'Faltan fichas o no es contigua a tu ciudad.');
       this.sound.play('error');
     }
+  }
+
+  /** Gira el edificio seleccionado un cuarto de vuelta (cambia hacia dónde mira el frente). */
+  private rotateSelected(): void {
+    if (!this.selected) return;
+    this.city.rotateTile(this.selected.x, this.selected.z);
+    this.sound.play('select');
+    this.refreshSelection();
   }
 
   /** Repara el edificio dañado seleccionado (cobra el costo de reparación). */

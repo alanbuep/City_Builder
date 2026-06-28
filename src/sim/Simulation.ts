@@ -434,6 +434,7 @@ export class Simulation {
         if (s.status !== 'building') continue;
         if (++s.progress >= s.duration) {
           this.city.setLevel(s.x, s.z, s.targetLevel);
+          if (s.targetLevel === 1) this.faceRoad(s.x, s.z, 1); // primer edificio de la zona → mira a la calle
           this.addXp(XP_REWARD.zoneLevel * s.targetLevel);
           this.sites.delete(k); // (sin aviso: el crecimiento de zonas sería spam)
         }
@@ -448,11 +449,18 @@ export class Simulation {
       if (++s.progress >= s.duration) {
         this.city.setType(s.x, s.z, TileType.Empty); // limpia el cartel (toda la obra)
         this.city.placeBuilding(s.x, s.z, s.target, s.size);
+        this.faceRoad(s.x, s.z, s.size); // el edificio nuevo mira a la calle
         this.sites.delete(k);
         this.justBuilt.push(s.target);
         this.addXp(XP_REWARD.buildBase + Math.round(TILE_DEF[s.target].cost * XP_REWARD.buildPerCost));
       }
     }
+  }
+
+  /** Orienta el frente del edificio S×S en (x,z) hacia la calle pegada (si hay). */
+  private faceRoad(x: number, z: number, size: number): void {
+    const o = this.city.orientationToRoad(x, z, size);
+    if (o !== null) this.city.setOrientation(x, z, o);
   }
 
   // --- Construcción con materiales ---
@@ -1468,6 +1476,7 @@ export class Simulation {
         for (let dx = 0; dx < size; dx++) this.city.setType(c.x + dx, c.z + dz, TileType.Empty);
       }
       this.city.placeBuilding(c.x, c.z, factory, size);
+      this.faceRoad(c.x, c.z, size); // la fábrica fusionada mira a la calle
     }
   }
 

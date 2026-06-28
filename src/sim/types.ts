@@ -184,6 +184,11 @@ export interface Tile {
   damaged: boolean;
   // Estilo del barrio (solo aplica a Residential): cambia densidad, tope y modelos.
   style: ResidentialStyle;
+  // Hacia dónde mira el frente del edificio, en cuartos de giro horario desde el
+  // norte: 0 = −Z (norte, la base de los modelos), 1 = +X (este), 2 = +Z (sur),
+  // 3 = −X (oeste). Se fija solo hacia la calle al construir; se ajusta a mano con
+  // el botón 🔄. Vive en el ancla (los edificios multi-casilla giran enteros).
+  orientation: number;
 }
 
 /** Influencia radial que emite un edificio (amenidad o servicio). */

@@ -68,7 +68,7 @@ export class MenuModal {
       <b>Cómo se juega</b><br>
       <span class="hint-touch">👆 Un dedo: mover la cámara · Tap: seleccionar / construir · Mantené apretado y arrastrá: pintar (calles, zonas) · Dos dedos: zoom y rotar</span>
       <span class="hint-mouse">🖱️ Click izq: seleccionar / construir · Click der: rotar · Rueda: zoom · Click medio: mover · Escape: cancelar</span><br>
-      🏗️ <b>Construir</b> abre el catálogo por rubros. Sin nada elegido, tocar un edificio muestra su info (mejorar, reparar, demoler).`;
+      🏗️ <b>Construir</b> abre el catálogo por rubros. Sin nada elegido, tocar un edificio muestra su info (mejorar, 🔄 girar, reparar, demoler). Los edificios miran solos a la calle; con 🔄 los reorientás.`;
     body.appendChild(help);
   }
 

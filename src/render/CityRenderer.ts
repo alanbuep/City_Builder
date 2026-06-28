@@ -960,6 +960,11 @@ export class CityRenderer {
     return m;
   }
 
+  /** Rotación (en radianes) del frente de un edificio según su orientación (0=N,1=E,2=S,3=O). */
+  private orientRot(tile: Tile): number {
+    return -(tile.orientation ?? 0) * (Math.PI / 2);
+  }
+
   /** Nombre del modelo (y rotación) para un tile, o null si no corresponde modelo. */
   private modelFor(tile: Tile, x: number, z: number): { file: string; rotY: number } | null {
     if (tile.type === TileType.Road) {
@@ -978,7 +983,7 @@ export class CityRenderer {
     if (tile.type === TileType.Residential) {
       if (tile.level <= 0) return null; // solar vacío → cubo plano
       const ladder = RES_STYLE_MODELS[tile.style] ?? RES_STYLE_MODELS.default;
-      return { file: ladder[clamp(tile.level, 1, ladder.length) - 1], rotY: 0 };
+      return { file: ladder[clamp(tile.level, 1, ladder.length) - 1], rotY: this.orientRot(tile) };
     }
     // Paisaje: árbol/roca eligen variante por casilla y rotan para no verse clonados.
     if (tile.type === TileType.Tree) {
@@ -991,10 +996,10 @@ export class CityRenderer {
     const zoneModels = ZONE_MODELS[tile.type];
     if (zoneModels) {
       if (tile.level <= 0) return null; // solar vacío → cubo plano
-      return { file: zoneModels[clamp(tile.level, 1, zoneModels.length) - 1], rotY: 0 };
+      return { file: zoneModels[clamp(tile.level, 1, zoneModels.length) - 1], rotY: this.orientRot(tile) };
     }
     const file = MODEL_FILE[tile.type];
-    return file ? { file, rotY: 0 } : null;
+    return file ? { file, rotY: this.orientRot(tile) } : null;
   }
 
   /** Instancia el modelo de un tile (clon de la plantilla), o null si no está disponible. */
@@ -1006,6 +1011,7 @@ export class CityRenderer {
       // Ruina por tamaño (`building_burnt_2/_3`) si existe; si no, escala la de 1×1.
       const sized = `${DAMAGED_MODEL}_${tile.size}`;
       file = tile.size > 1 && this.models.has(sized) ? sized : DAMAGED_MODEL;
+      rotY = this.orientRot(tile); // la ruina conserva la orientación del edificio
     } else {
       const spec = this.modelFor(tile, x, z);
       if (!spec) return null;

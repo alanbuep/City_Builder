@@ -1318,6 +1318,78 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['partida vieja sin xp no rompe (estima ≥ 0)', sim3.xp >= 0 && sim3.level >= 1]);
 }
 
+// 48) Orientación: los edificios miran a la calle. Auto al construir, geometría
+// por lado, giro a mano, y backfill de partidas viejas (que respeta lo manual).
+{
+  // (a) Geometría: orientationToRoad da el cardinal de la calle (0=N,1=E,2=S,3=O).
+  const g = new City(10, 10);
+  g.setType(5, 3, TileType.Road); // calle al NORTE de (5,4)
+  checks.push(['orienta al norte', g.orientationToRoad(5, 4, 1) === 0]);
+  const g2 = new City(10, 10);
+  g2.setType(6, 5, TileType.Road); // calle al ESTE de (5,5)
+  checks.push(['orienta al este', g2.orientationToRoad(5, 5, 1) === 1]);
+  const g3 = new City(10, 10);
+  g3.setType(5, 6, TileType.Road); // calle al SUR de (5,5)
+  checks.push(['orienta al sur', g3.orientationToRoad(5, 5, 1) === 2]);
+  const g4 = new City(10, 10);
+  g4.setType(4, 5, TileType.Road); // calle al OESTE de (5,5)
+  checks.push(['orienta al oeste', g4.orientationToRoad(5, 5, 1) === 3]);
+  checks.push(['sin calle al lado no hay orientación (null)', g4.orientationToRoad(0, 0, 1) === null]);
+
+  // Edificio 2×2 con la calle pegada al lado sur del footprint.
+  const gm = new City(10, 10);
+  gm.setType(2, 4, TileType.Road);
+  gm.setType(3, 4, TileType.Road); // borde sur del 2×2 anclado en (2,2)
+  checks.push(['un 2×2 detecta la calle al sur', gm.orientationToRoad(2, 2, 2) === 2]);
+
+  // (b) Giro a mano: cicla 0→1→2→3→0; se resuelve por el ancla desde una sub-celda.
+  const r = new City(8, 8);
+  r.placeBuilding(2, 2, TileType.Hospital, 2); // 2×2, ancla (2,2)
+  r.drainDirty();
+  r.setOrientation(2, 2, 1);
+  checks.push(['setOrientation fija la orientación', r.getOrientation(2, 2) === 1]);
+  checks.push(['la sub-celda resuelve al ancla', r.getOrientation(3, 3) === 1]);
+  r.rotateTile(3, 3); // girar desde una sub-celda gira el edificio entero
+  checks.push(['rotar gira el ancla (1→2)', r.getOrientation(2, 2) === 2]);
+  r.setOrientation(2, 2, 3);
+  r.rotateTile(2, 2);
+  checks.push(['rotar cicla 3→0', r.getOrientation(2, 2) === 0]);
+
+  // (c) Auto al construir: una obra terminada mira a la calle pegada.
+  const c = new City(10, 10);
+  const s = new Simulation(c);
+  s.mode = 'manual';
+  c.setType(5, 6, TileType.Road); // calle al sur del edificio en (5,5)
+  c.placeBuilding(5, 5, TileType.Construction, 1);
+  s.addSite(5, 5, 1, TileType.Police);
+  c.drainDirty();
+  s.startConstruction(5, 5);
+  for (let i = 0; i < 6; i++) s.tick(); // que termine la obra
+  console.log('[orientación] policía construida mira al sur:', c.getTile(5, 5).type === TileType.Police, '| orient:', c.getOrientation(5, 5));
+  checks.push(['el edificio construido mira a la calle (sur=2)', c.getTile(5, 5).type === TileType.Police && c.getOrientation(5, 5) === 2]);
+
+  // (d) Backfill de partida vieja: sin el flag `oriented`, al cargar se orienta
+  // hacia la calle; pero una orientación YA guardada (manual) se respeta.
+  const cityOld = new City(10, 10);
+  cityOld.setType(5, 6, TileType.Road);
+  cityOld.placeBuilding(5, 5, TileType.Police, 1); // queda mirando al norte (0)
+  const oldSave = cityOld.serialize();
+  delete oldSave.oriented; // simula una partida vieja (anterior a la orientación)
+  for (const t of oldSave.tiles) delete t.orientation;
+  const loaded = new City(10, 10);
+  loaded.load(oldSave);
+  console.log('[orientación] backfill partida vieja → orient:', loaded.getOrientation(5, 5));
+  checks.push(['partida vieja: el edificio se orienta a la calle al cargar', loaded.getOrientation(5, 5) === 2]);
+
+  const manual = new City(10, 10);
+  manual.setType(5, 6, TileType.Road);
+  manual.placeBuilding(5, 5, TileType.Police, 1);
+  manual.setOrientation(5, 5, 1); // el jugador lo giró al este a propósito
+  const loaded2 = new City(10, 10);
+  loaded2.load(manual.serialize()); // guardado nuevo (con `oriented`) → no se toca
+  checks.push(['guardado nuevo conserva la orientación manual', loaded2.getOrientation(5, 5) === 1]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);
