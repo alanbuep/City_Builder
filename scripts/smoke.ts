@@ -1191,10 +1191,13 @@ const checks: Array<[string, boolean]> = [];
   // Una parcela ya abierta no se "desbloquea".
   checks.push(['no se desbloquea algo ya abierto', sim.unlockTerritory(4, 4) === false]);
 
-  // Cada catástrofe superada vale DOBLE en fichas (2 c/u).
-  sim.recordDisaster();
-  checks.push(['una catástrofe da 2 fichas', sim.territoryTokens() === 2]);
+  // Cada catástrofe con daño real vale DOBLE en fichas (2 c/u).
+  const rewarded = sim.recordDisaster(3); // 3 edificios dañados
+  checks.push(['una catástrofe con daño da 2 fichas', rewarded && sim.territoryTokens() === 2]);
   checks.push(['el desglose atribuye las fichas a catástrofes', sim.territoryTokenSources().disasters === 2]);
+  // Anti-farmeo: sin daño no premia, y hay cooldown entre premios (mismo mes = 0).
+  checks.push(['una catástrofe sin daño NO da ficha', sim.recordDisaster(0) === false]);
+  checks.push(['no se puede farmear el menú (cooldown)', sim.recordDisaster(5) === false && sim.territoryTokens() === 2]);
 
   // Abro la parcela lateral (contigua a lo abierto) y se gastan fichas.
   const before = sim.territoryTokens();

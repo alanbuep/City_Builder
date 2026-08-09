@@ -997,7 +997,7 @@ export class Game {
   private triggerFire(): void {
     const cell = this.sim.disasters.igniteRandom(Math.random);
     if (cell) {
-      this.sim.recordDisaster(); // solo cuenta (ficha/XP) si algo se prendió de verdad
+      this.sim.recordDisaster(1); // ficha/XP solo si prendió algo y no está en cooldown
       this.notifications.toast('🔥', '¡Se desató un incendio!');
       this.sound.play('disaster');
     } else this.notifications.toast('🤷', 'No hay edificios para incendiar.');
@@ -1005,20 +1005,20 @@ export class Game {
 
   /** Lanza un meteorito: cae sobre un objetivo y, al impactar, arrasa e incendia. */
   private triggerMeteor(): void {
-    this.sim.recordDisaster();
     const target = this.sim.disasters.pickMeteorTarget(Math.random);
     this.notifications.toast('🌠', '¡Meteorito en camino!');
     this.sound.play('disaster');
     this.cityRenderer.playMeteor(target.x, target.z, () => {
       const r = this.sim.disasters.strikeMeteor(target.x, target.z);
+      this.sim.recordDisaster(r.destroyed.length); // ficha/XP solo si dañó algo (con cooldown)
       this.notifications.toast('💥', `¡Impacto! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
     });
   }
 
   /** Desata un tornado que cruza el mapa serpenteando. */
   private triggerTornado(): void {
-    this.sim.recordDisaster();
     const r = this.sim.disasters.spawnTornado(Math.random);
+    this.sim.recordDisaster(r.destroyed.length);
     this.cityRenderer.playTornado(r.path ?? []);
     this.notifications.toast('🌪️', `¡Tornado! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
     this.sound.play('disaster');
@@ -1026,8 +1026,8 @@ export class Game {
 
   /** Desata un huracán que castiga toda la ciudad. */
   private triggerHurricane(): void {
-    this.sim.recordDisaster();
     const r = this.sim.disasters.spawnHurricane(Math.random);
+    this.sim.recordDisaster(r.destroyed.length);
     this.cityRenderer.playHurricane();
     this.notifications.toast('🌀', `¡Huracán! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
     this.sound.play('disaster');

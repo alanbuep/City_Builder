@@ -170,6 +170,7 @@ export interface SimSave {
   missions?: string[]; // misiones cumplidas (opcional: partidas viejas no lo tienen)
   xp?: number; // XP del nivel de ciudad (opcional: partidas viejas la estiman al cargar)
   peakPopulation?: number; // pico histórico de población (opcional)
+  disasterRewardMonth?: number; // mes de la última catástrofe premiada (cooldown, opcional)
   raceActive?: boolean; // carrera en curso (opcional)
   raceMonthsLeft?: number; // meses restantes del evento (opcional)
   raceCooldown?: number; // meses hasta el próximo evento (opcional)
@@ -211,6 +212,7 @@ const TRANSIT_MAX_RELIEF = 0.7; // el transporte público puede quitar hasta est
 const POLLUTION_BLOCK = 0.6; // contaminación a partir de la cual una casilla no sube de nivel 1
 const RACE_DURATION = 2; // meses que dura un fin de semana de carreras
 const RACE_INTERVAL = 10; // meses entre eventos de carrera
+const DISASTER_REWARD_COOLDOWN = 8; // meses mínimos entre catástrofes que dan ficha/XP (evita farmear el menú)
 const RACE_INCOME = 150; // renta extra por mes (× circuitos) mientras hay carrera
 const WATER_AMENITY_RADIUS = 2; // las casillas junto al agua suben de valor (vista al lago/río)
 const WATER_AMENITY_STRENGTH = 0.35;
@@ -291,6 +293,7 @@ export class Simulation {
   private territorySpent = 0; // fichas ya gastadas abriendo territorio
   private territoryUnlocks = 0; // parcelas que abrió el jugador (encarece la próxima)
   private peakPopulation = 0; // pico histórico de población (los hitos son logros: no bajan si la población cae)
+  private lastDisasterRewardMonth = -DISASTER_REWARD_COOLDOWN; // mes de la última catástrofe premiada (cooldown anti-farmeo)
 
   // Misiones cumplidas (monotónico, como la tecnología) + cola de avisos.
   private missionsDone = new Set<string>();
@@ -536,10 +539,18 @@ export class Simulation {
 
   // --- Territorio (parcelas que se desbloquean con fichas) ---
 
-  /** Registra que ocurrió una catástrofe (suma una ficha de territorio por superarla). */
-  recordDisaster(): void {
+  /**
+   * Registra una catástrofe. Solo da ficha 🗝️ + XP si HIZO DAÑO real (`affected` >
+   * 0) y no está en cooldown (no se puede farmear el menú a puro clic; se puede
+   * cada `DISASTER_REWARD_COOLDOWN` meses). Devuelve true si otorgó premio.
+   */
+  recordDisaster(affected: number): boolean {
+    if (affected <= 0) return false; // no rompió nada → no cuenta
+    if (this.month - this.lastDisasterRewardMonth < DISASTER_REWARD_COOLDOWN) return false; // en cooldown
+    this.lastDisasterRewardMonth = this.month;
     this.disastersSurvived++;
     this.addXp(XP_REWARD.disaster);
+    return true;
   }
 
   // --- Nivel de ciudad (XP) ---
@@ -836,6 +847,7 @@ export class Simulation {
       missions: [...this.missionsDone],
       xp: this.xp,
       peakPopulation: this.peakPopulation,
+      disasterRewardMonth: this.lastDisasterRewardMonth,
       raceActive: this.raceActive,
       raceMonthsLeft: this.raceMonthsLeft,
       raceCooldown: this.raceCooldown,
@@ -866,6 +878,7 @@ export class Simulation {
     this.xp = data.xp ?? this.estimateXp();
     // Pico de población: lo guardado o, en partidas viejas, la población actual.
     this.peakPopulation = data.peakPopulation ?? this.population;
+    this.lastDisasterRewardMonth = data.disasterRewardMonth ?? -DISASTER_REWARD_COOLDOWN;
     this.justLeveled = [];
   }
 
@@ -878,6 +891,7 @@ export class Simulation {
     this.territorySpent = 0;
     this.territoryUnlocks = 0;
     this.peakPopulation = 0;
+    this.lastDisasterRewardMonth = -DISASTER_REWARD_COOLDOWN;
     this.unlocked.clear();
     this.missionsDone.clear();
     this.justCompletedMissions = [];
@@ -1348,7 +1362,12 @@ export class Simulation {
         if (t.damaged) return; // una ruina no genera viajes
         // El transporte público cercano a la zona quita parte de sus viajes en auto.
         const relief = Math.min(TRANSIT_MAX_RELIEF, this.transit[cz * w + cx]);
-        load += capacityOf(t.type, t.level, t.style) * (1 - relief);
+        // Viajes = habitantes/empleos de la zona (capacityOf) + empleos de los
+        // edificios ploppables (fábricas/comercios/oficinas), repartidos por casilla
+        // así un edificio grande no cuenta N veces. Ahora los distritos laborales congestionan.
+        const def = TILE_DEF[t.type];
+        const jobsPerCell = ((def.jobs ?? 0) + (def.shopJobs ?? 0)) / (t.size * t.size);
+        load += (capacityOf(t.type, t.level, t.style) + jobsPerCell) * (1 - relief);
       };
       add(x + 1, z);
       add(x - 1, z);
