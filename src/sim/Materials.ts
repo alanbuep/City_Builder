@@ -18,6 +18,9 @@ import { Material, MATERIALS, MATERIAL_LABEL, MATERIAL_PRICE, MaterialBag, TileT
 // cuestan materiales). Después, todo se construye con lo que producen los corralones.
 const START_RESERVE: Record<Material, number> = { arena: 80, cemento: 140, ladrillo: 160, madera: 80, acero: 0, electronica: 0 };
 const RETAIL_RATE = 4; // cuánto vende una ferretería de cada material por mes
+// La ferretería vende materiales de CONSTRUCCIÓN a la población; no liquida el
+// acero/electrónica que juntás para la empresa tecnológica.
+const RETAIL_MATERIALS: Material[] = ['arena', 'cemento', 'ladrillo', 'madera'];
 const EXPORT_MARGIN = 0.7; // exportar paga menos que la venta local
 const DEFAULT_EXPORT_KEEP = 100; // stock mínimo a conservar antes de exportar
 
@@ -71,7 +74,7 @@ export class MaterialSystem {
     this.consumed = emptyBag();
 
     city.forEach((tile, x, z) => {
-      if (city.isSubCell(x, z)) return;
+      if (city.isSubCell(x, z) || tile.damaged) return; // una ruina no produce hasta repararla
       const def = TILE_DEF[tile.type];
       if (!def.makes && !def.needsMaterial) return; // solo productoras
 
@@ -79,6 +82,12 @@ export class MaterialSystem {
       const hasYard = comp >= 0 && (this.byComp.get(comp)?.length ?? 0) > 0;
       // Una productora necesita energía y un corralón conectado (dónde depositar).
       if (!hasYard || !hasPower) {
+        this.idleProducers++;
+        return;
+      }
+      // Si lo que produce no tiene lugar en el corralón, NO arranca: así no gasta
+      // el insumo al pedo (antes consumía la arena aunque el cemento no entrara).
+      if (def.makes && this.compRoom(comp, def.makes.material) <= 0) {
         this.idleProducers++;
         return;
       }
@@ -112,10 +121,10 @@ export class MaterialSystem {
   private processTrade(city: City): void {
     this.tradeIncome = 0;
     city.forEach((tile, x, z) => {
-      if (city.isSubCell(x, z) || !TILE_DEF[tile.type].sellsMaterials) return;
+      if (city.isSubCell(x, z) || tile.damaged || !TILE_DEF[tile.type].sellsMaterials) return;
       const comp = this.componentOfFootprint(city, x, z, tile.size);
       if (comp < 0) return;
-      for (const m of MATERIALS) {
+      for (const m of RETAIL_MATERIALS) {
         const sold = Math.min(RETAIL_RATE, this.compStock(comp, m));
         if (sold > 0) {
           this.takeFromComp(comp, m, sold);
@@ -125,7 +134,7 @@ export class MaterialSystem {
       }
     });
     city.forEach((tile, x, z) => {
-      if (city.isSubCell(x, z) || !TILE_DEF[tile.type].exportsMaterials) return;
+      if (city.isSubCell(x, z) || tile.damaged || !TILE_DEF[tile.type].exportsMaterials) return;
       const comp = this.componentOfFootprint(city, x, z, tile.size);
       if (comp < 0) return;
       for (const m of MATERIALS) {
@@ -323,8 +332,9 @@ export class MaterialSystem {
     city.forEach((tile, x, z) => {
       if (tile.type !== TileType.BuildYard || city.isSubCell(x, z)) return;
       const k = keyOf(x, z);
-      present.add(k);
+      present.add(k); // sigue existiendo (no borrar su stock) aunque esté dañado
       if (!this.stock.has(k)) this.stock.set(k, emptyBag());
+      if (tile.damaged) return; // un corralón en ruinas no distribuye hasta repararlo
       const comp = this.componentOfFootprint(city, x, z, tile.size);
       if (comp < 0) return;
       const list = this.byComp.get(comp) ?? [];
@@ -338,6 +348,13 @@ export class MaterialSystem {
     let sum = 0;
     for (const k of this.byComp.get(comp) ?? []) sum += this.stock.get(k)?.[m] ?? 0;
     return sum;
+  }
+
+  /** Espacio libre para el material `m` en los corralones de la red `comp`. */
+  private compRoom(comp: number, m: Material): number {
+    let room = 0;
+    for (const k of this.byComp.get(comp) ?? []) room += CORRALON_CAP - (this.stock.get(k)?.[m] ?? 0);
+    return room;
   }
 
   /** Quita hasta `amt` de un material; del corralón MÁS lleno primero (mantiene el balance). Devuelve lo que faltó. */

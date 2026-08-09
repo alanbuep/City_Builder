@@ -71,6 +71,15 @@ export class Game {
   // Burbujas de opinión de los vecinos (se renuevan cada tanto).
   private bubbles: Array<{ x: number; z: number; text: string; mood: 'good' | 'bad' }> = [];
   private nextBubbleAt = 0;
+  private saveWarned = false; // ya avisamos que el guardado local falló (no spamear)
+
+  // Fuentes de aeronaves/carreras (edificios): se recomputan solo cuando cambian
+  // las casillas, no cada frame (escanear 48×48 por frame es caro en el celular).
+  private srcTracks: Array<{ x: number; z: number; size: number }> = [];
+  private srcAirports: Array<{ x: number; z: number; size: number }> = [];
+  private srcDocks: Array<{ x: number; z: number; size: number }> = [];
+  private srcPorts: Array<{ x: number; z: number; size: number }> = [];
+  private sourcesDirty = true;
 
   private painting = false;
   private dragPath: DragStep[] = []; // trazo del arrastre actual (permite retroceder)
@@ -372,19 +381,21 @@ export class Game {
     const coord = this.picker.tileAt(e);
     const tool = this.build.current;
 
-    // Herramienta de selección.
+    // Herramienta de selección: usa el edificio realmente tocado (mesh), no el
+    // suelo bajo el cursor — así seleccionar una torre alta no cae en la casilla de atrás.
     if (tool === 'select') {
-      if (coord && this.city.getTile(coord.x, coord.z).type === TileType.Road) {
+      const sel = this.selectCoordAt(e);
+      if (sel && this.city.getTile(sel.x, sel.z).type === TileType.Road) {
         // Carretera: empieza un arrastre para elegir el tramo a mejorar.
         this.roadDragging = true;
-        this.roadDragStart = coord;
-        this.roadSelection = [coord];
-        this.selected = coord;
+        this.roadDragStart = sel;
+        this.roadSelection = [sel];
+        this.selected = sel;
         this.inspector.show();
         this.refreshSelection();
-      } else if (coord) {
+      } else if (sel) {
         this.roadSelection = [];
-        this.select(coord);
+        this.select(sel);
       } else {
         this.roadSelection = [];
         this.deselect();
@@ -490,15 +501,17 @@ export class Game {
       return;
     }
     if (tool === 'select') {
-      if (this.city.getTile(coord.x, coord.z).type === TileType.Road) {
+      // Toca el edificio real (mesh), no el suelo detrás de una torre alta.
+      const sel = this.selectCoordAt(e) ?? coord;
+      if (this.city.getTile(sel.x, sel.z).type === TileType.Road) {
         // Tap en una calle: selecciona el tramo recto completo para mejorar.
-        this.roadSelection = this.sim.roadSegmentCells(coord.x, coord.z);
-        this.selected = coord;
+        this.roadSelection = this.sim.roadSegmentCells(sel.x, sel.z);
+        this.selected = sel;
         this.inspector.show();
         this.refreshSelection();
       } else {
         this.roadSelection = [];
-        this.select(coord);
+        this.select(sel);
       }
       return;
     }
@@ -745,7 +758,14 @@ export class Game {
   }
 
   private save(): void {
-    saveLocal(this.buildSaveData());
+    const ok = saveLocal(this.buildSaveData());
+    if (!ok && !this.saveWarned) {
+      // Avisar UNA vez: el guardado local falló (almacenamiento lleno / modo privado).
+      this.saveWarned = true;
+      this.notifications.toast('⚠️', 'No se pudo guardar (almacenamiento lleno). Exportá tu ciudad desde ⚙️ Menú.');
+    } else if (ok) {
+      this.saveWarned = false;
+    }
   }
 
   private applySave(data: SaveData): void {
@@ -754,6 +774,9 @@ export class Game {
     this.actionBar.setMode(this.sim.mode); // sincroniza el botón de modo con lo cargado
     this.cityRenderer.setLockedRegions(this.city.lockedRegions());
     this.cityRenderer.refreshOcean();
+    this.bubbles = []; // las burbujas de la ciudad anterior no valen para esta
+    this.nextBubbleAt = 0;
+    this.sourcesDirty = true; // recomputar fuentes de aeronaves/carreras de la ciudad cargada
     this.deselect();
   }
 
@@ -777,6 +800,9 @@ export class Game {
     this.sim.reset();
     this.cityRenderer.setLockedRegions(this.city.lockedRegions());
     this.cityRenderer.refreshOcean();
+    this.bubbles = [];
+    this.nextBubbleAt = 0;
+    this.sourcesDirty = true;
     this.deselect();
   }
 
@@ -838,9 +864,11 @@ export class Game {
     }
 
     // Redibuja solo las casillas que cambiaron (por el jugador o la simulación).
-    for (const c of this.city.drainDirty()) {
+    const dirty = this.city.drainDirty();
+    for (const c of dirty) {
       this.cityRenderer.updateTile(c.x, c.z);
     }
+    if (dirty.length) this.sourcesDirty = true; // cambió algo → recomputar fuentes de FX
 
     // Recolorea las carreteras según el tráfico actual.
     this.cityRenderer.refreshTraffic((x, z) => this.sim.getCongestion(x, z));
@@ -879,21 +907,25 @@ export class Game {
     this.cityRenderer.setFires(burning); // fuego sobre las casillas en llamas
     this.cityRenderer.setHero(this.sim.hasHero, burning[0] ?? null); // el héroe acude al incendio
 
-    // Atracciones y aeronaves: cada cosa sale de su edificio.
-    const tracks: Array<{ x: number; z: number; size: number }> = [];
-    const airports: Array<{ x: number; z: number; size: number }> = [];
-    const docks: Array<{ x: number; z: number; size: number }> = [];
-    const ports: Array<{ x: number; z: number; size: number }> = [];
-    this.city.forEach((tile, x, z) => {
-      if (this.city.isSubCell(x, z) || tile.damaged) return;
-      const def = TILE_DEF[tile.type];
-      if (def.raceTrack) tracks.push({ x, z, size: tile.size });
-      if (tile.type === TileType.Airport) airports.push({ x, z, size: tile.size });
-      if (def.launchesBlimp) docks.push({ x, z, size: tile.size });
-      if (def.launchesBalloons) ports.push({ x, z, size: tile.size });
-    });
-    this.cityRenderer.setRace(this.sim.raceActive, tracks);
-    this.cityRenderer.setAirSources(airports, docks, ports);
+    // Atracciones y aeronaves: cada cosa sale de su edificio. Se recomputa solo
+    // cuando cambió alguna casilla (no cada frame).
+    if (this.sourcesDirty) {
+      this.srcTracks = [];
+      this.srcAirports = [];
+      this.srcDocks = [];
+      this.srcPorts = [];
+      this.city.forEach((tile, x, z) => {
+        if (this.city.isSubCell(x, z) || tile.damaged) return;
+        const def = TILE_DEF[tile.type];
+        if (def.raceTrack) this.srcTracks.push({ x, z, size: tile.size });
+        if (tile.type === TileType.Airport) this.srcAirports.push({ x, z, size: tile.size });
+        if (def.launchesBlimp) this.srcDocks.push({ x, z, size: tile.size });
+        if (def.launchesBalloons) this.srcPorts.push({ x, z, size: tile.size });
+      });
+      this.cityRenderer.setAirSources(this.srcAirports, this.srcDocks, this.srcPorts);
+      this.sourcesDirty = false;
+    }
+    this.cityRenderer.setRace(this.sim.raceActive, this.srcTracks);
     if (this.sim.drainRaceStart()) this.notifications.toast('🏁', '¡Fin de semana de carreras! 🏎️');
 
     const burned = this.sim.disasters.drainDestroyed();
@@ -943,6 +975,15 @@ export class Game {
     }
   }
 
+  /**
+   * Casilla a SELECCIONAR: primero el edificio realmente tocado (intersecta los
+   * modelos → evita el error de parallax al tocar una torre alta con la cámara
+   * baja); si el rayo no pega ningún modelo, la casilla del suelo bajo el dedo.
+   */
+  private selectCoordAt(e: PointerEvent): Coord | null {
+    return this.cityRenderer.pickTileCoord(this.picker.rayFrom(e)) ?? this.picker.tileAt(e);
+  }
+
   /** Si el click cayó sobre una burbuja, la cierra y devuelve true (consume el click). */
   private dismissBubbleAt(e: PointerEvent): boolean {
     const idx = this.cityRenderer.pickBubble(this.picker.rayFrom(e));
@@ -952,11 +993,11 @@ export class Game {
     return true;
   }
 
-  /** Provoca un incendio en un edificio al azar (botón / prueba). */
+  /** Provoca un incendio en un edificio al azar (botón / espontáneo). */
   private triggerFire(): void {
-    this.sim.recordDisaster();
     const cell = this.sim.disasters.igniteRandom(Math.random);
     if (cell) {
+      this.sim.recordDisaster(); // solo cuenta (ficha/XP) si algo se prendió de verdad
       this.notifications.toast('🔥', '¡Se desató un incendio!');
       this.sound.play('disaster');
     } else this.notifications.toast('🤷', 'No hay edificios para incendiar.');
@@ -1002,8 +1043,7 @@ export class Game {
     if (Math.random() >= SPONTANEOUS_FIRE_CHANCE) return;
     const roll = Math.random();
     if (roll < 0.7) {
-      this.sim.recordDisaster();
-      this.sim.disasters.igniteRandom(Math.random);
+      this.triggerFire(); // toast + sonido + ficha solo si se prende algo
     } else if (roll < 0.85) this.triggerMeteor();
     else if (roll < 0.96) this.triggerTornado();
     else this.triggerHurricane();

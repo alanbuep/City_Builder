@@ -57,7 +57,12 @@ export class BuildMenu {
     this.unlockedSig = sig;
     this.unlocked = set;
     if (this.isLocked(this.current)) this.useSelect(); // por las dudas
-    if (this.modal.isOpen && this.openCategory >= 0) this.renderTools();
+    // Si el catálogo está abierto, refrescar la vista actual para que el nuevo
+    // desbloqueo aparezca al instante (antes solo se actualizaba dentro de un rubro).
+    if (this.modal.isOpen) {
+      if (this.openCategory >= 0) this.renderTools();
+      else this.renderCats();
+    }
   }
 
   /** Vuelve a la herramienta de selección 🔍 (tocar edificios = ver su info). */

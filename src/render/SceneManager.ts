@@ -15,7 +15,9 @@ export class SceneManager {
   constructor(container: HTMLElement) {
     // --- Renderer ---
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    // Tope al DPR: en un celular el ratio nativo es 2.5-4 → renderizar a ~9× los
+    // píxeles funde la batería y baja los FPS. 2 ya se ve nítido. (Factor #1 de perf móvil.)
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;

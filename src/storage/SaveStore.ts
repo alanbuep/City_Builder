@@ -21,11 +21,14 @@ export interface SaveData {
 
 const KEY = 'city-builder:save';
 
-export function saveLocal(data: SaveData): void {
+/** Guarda en localStorage. Devuelve false si falló (cuota llena / modo privado). */
+export function saveLocal(data: SaveData): boolean {
   try {
     localStorage.setItem(KEY, JSON.stringify(data));
+    return true;
   } catch (e) {
     console.warn('No se pudo guardar:', e);
+    return false;
   }
 }
 
@@ -46,8 +49,12 @@ export function exportFile(data: SaveData): void {
   const a = document.createElement('a');
   a.href = url;
   a.download = `${(data.name || 'ciudad').replace(/\s+/g, '_')}.json`;
+  // Algunos navegadores móviles ignoran el click si el ancla no está en el DOM,
+  // y revocar la URL en el acto puede cancelar la descarga: adjuntar + revocar diferido.
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 /** Lee una partida desde un archivo elegido por el usuario. */

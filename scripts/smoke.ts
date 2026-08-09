@@ -1390,6 +1390,102 @@ const checks: Array<[string, boolean]> = [];
   checks.push(['guardado nuevo conserva la orientación manual', loaded2.getOrientation(5, 5) === 1]);
 }
 
+// 49) REVISIÓN 2026-06-28: persistencia de carreras, catástrofes que afectan la
+// cadena de materiales, ferretería que no liquida acero, bomberos en ruinas y
+// hitos de población monótonos.
+{
+  // (a) El estado de la carrera se PERSISTE (no se re-dispara/farmea al recargar).
+  const c = new City(12, 12);
+  const s = new Simulation(c);
+  s.mode = 'manual';
+  c.placeBuilding(2, 2, TileType.RaceTrack, 3);
+  c.drainDirty();
+  s.tick(); // arranca una carrera
+  const activeBefore = s.raceActive;
+  const s2 = new Simulation(new City(12, 12));
+  s2.load(s.serialize());
+  console.log('[carreras] persistencia activa:', activeBefore, '→', s2.raceActive);
+  checks.push(['guardar/cargar conserva el estado de la carrera', s2.raceActive === activeBefore]);
+  checks.push(['al cargar no se re-anuncia la carrera (no farm)', s2.drainRaceStart() === false]);
+
+  // (b) Una productora DAÑADA por una catástrofe deja de producir.
+  const mc = new City(12, 12);
+  const ms = new Simulation(mc);
+  for (let x = 0; x < 12; x++) mc.setType(x, 5, TileType.Road);
+  mc.setType(1, 4, TileType.SandPit);
+  mc.placeBuilding(6, 6, TileType.BuildYard, 2);
+  mc.placeBuilding(9, 6, TileType.PowerPlant, 2);
+  mc.drainDirty();
+  ms.tick();
+  const prodOk = ms.getStats().materials.produced.arena;
+  mc.setDamaged(1, 4, true); // la arenera queda en ruinas
+  mc.drainDirty();
+  ms.tick();
+  const prodDmg = ms.getStats().materials.produced.arena;
+  console.log('[materiales] arena producida sana/dañada:', prodOk, '/', prodDmg);
+  checks.push(['una arenera sana produce arena', prodOk > 0]);
+  checks.push(['una arenera en ruinas NO produce', prodDmg === 0]);
+
+  // (c) La ferretería NO liquida el acero (queda para la empresa tecnológica).
+  const hc = new City(12, 12);
+  const hs = new Simulation(hc);
+  for (let x = 0; x < 12; x++) hc.setType(x, 5, TileType.Road);
+  hc.placeBuilding(0, 6, TileType.SteelMill, 2); // produce acero
+  hc.placeBuilding(4, 6, TileType.BuildYard, 2);
+  hc.placeBuilding(7, 6, TileType.PowerPlant, 2);
+  hc.setType(10, 4, TileType.Hardware); // ferretería
+  hc.drainDirty();
+  for (let i = 0; i < 10; i++) hs.tick();
+  const steel = hs.getStats().materials.totals.acero;
+  console.log('[ferretería] acero acumulado tras 10 meses (no lo vende):', steel);
+  checks.push(['la ferretería no drena el acero (se acumula)', steel >= 20]);
+
+  // (d) Una estación de bomberos EN RUINAS no protege (el edificio se quema).
+  const fc = new City(10, 10);
+  const fs = new Simulation(fc);
+  fs.mode = 'manual';
+  fc.setType(2, 2, TileType.Commercial);
+  fc.setLevel(2, 2, 1);
+  fc.setType(3, 2, TileType.Fire); // bomberos al lado...
+  fc.setDamaged(3, 2, true); // ...pero en ruinas
+  fc.drainDirty();
+  fs.disasters.igniteAt(2, 2);
+  for (let i = 0; i < 8; i++) fs.tick();
+  console.log('[bomberos] en ruinas → edificio dañado:', fc.getTile(2, 2).damaged);
+  checks.push(['bomberos en ruinas NO apagan (el edificio termina dañado)', fc.getTile(2, 2).damaged === true]);
+
+  const fc2 = new City(10, 10);
+  const fs2 = new Simulation(fc2);
+  fs2.mode = 'manual';
+  fc2.setType(2, 2, TileType.Commercial);
+  fc2.setLevel(2, 2, 1);
+  fc2.setType(3, 2, TileType.Fire);
+  fc2.drainDirty();
+  fs2.disasters.igniteAt(2, 2);
+  for (let i = 0; i < 8; i++) fs2.tick();
+  checks.push(['bomberos sanos SÍ protegen (no se daña)', fc2.getTile(2, 2).damaged === false]);
+
+  // (e) Los hitos de población son LOGROS: no bajan si la población cae. En modo
+  // manual (sin decaimiento) forzamos casas de nivel 2 para superar el 1er hito (50).
+  const pc = new City(16, 16);
+  const ps = new Simulation(pc);
+  ps.mode = 'manual';
+  for (let x = 0; x < 12; x++) {
+    pc.setType(x, 5, TileType.Road);
+    pc.setType(x, 4, TileType.Residential);
+    pc.setLevel(x, 4, 2);
+  }
+  pc.drainDirty();
+  ps.tick(); // recuenta la población
+  const milesBefore = ps.territoryTokenSources().population;
+  for (let x = 0; x < 12; x++) pc.setType(x, 4, TileType.Empty); // demoler todo
+  ps.tick();
+  const milesAfter = ps.territoryTokenSources().population;
+  console.log('[hitos] fichas de población antes/después de demoler:', milesBefore, '/', milesAfter);
+  checks.push(['la ciudad cruzó algún hito de población', milesBefore >= 1]);
+  checks.push(['los hitos de población no bajan al caer la población', milesAfter === milesBefore]);
+}
+
 let allOk = true;
 for (const [name, ok] of checks) {
   console.log(`${ok ? '✅' : '❌'} ${name}`);

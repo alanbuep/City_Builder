@@ -155,7 +155,8 @@ export class TopBar {
 
   private setUtility(el: HTMLElement, u: { supply: number; demand: number }): void {
     el.textContent = `${u.supply}/${u.demand}`;
-    el.style.color = u.supply >= Math.max(1, u.demand) ? '#7CFC9A' : '#ff6b6b';
+    // Sin consumo todavía (ciudad recién empezada) = neutro, no rojo de falsa alarma.
+    el.style.color = u.demand === 0 ? '' : u.supply >= u.demand ? '#7CFC9A' : '#ff6b6b';
   }
 
   private setCoverage(el: HTMLElement, ratio: number): void {

@@ -154,7 +154,9 @@ export class DisasterFx {
         t += dt;
         const u = Math.min(1, t / dur);
         const f = u * (path.length - 1);
-        const i = Math.min(path.length - 2, Math.floor(f));
+        // clamp a [0, len-2]: con un recorrido de 1 casilla, len-2 = -1 y path[-1]
+        // era undefined → crash cada frame (freeze del juego). El Math.max lo evita.
+        const i = Math.max(0, Math.min(path.length - 2, Math.floor(f)));
         const frac = f - i;
         const a = path[i];
         const b = path[Math.min(path.length - 1, i + 1)];

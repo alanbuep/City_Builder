@@ -131,6 +131,7 @@ export class Inspector {
   private exMinusBtn: HTMLButtonElement;
   private exPlusBtn: HTMLButtonElement;
   private roadStretch?: { cells: number; cost: number }; // tramo de carretera elegido a mano
+  private lastSig = ''; // firma del último render (evita reconstruir el DOM cada frame)
 
   constructor(container: HTMLElement, callbacks: InspectorCallbacks) {
     this.root = document.createElement('div');
@@ -186,6 +187,11 @@ export class Inspector {
   }
 
   update(info: TileInfo, money: number, roadStretch?: { cells: number; cost: number }): void {
+    // El bucle llama update() cada frame mientras haya algo seleccionado; solo
+    // reconstruimos el DOM si REALMENTE cambió algo (evita jank/batería en el celular).
+    const sig = JSON.stringify(info) + '|' + money + '|' + (roadStretch ? `${roadStretch.cells},${roadStretch.cost}` : '');
+    if (sig === this.lastSig) return;
+    this.lastSig = sig;
     if (info.construction) {
       this.renderConstruction(info);
       return;
@@ -527,8 +533,10 @@ export class Inspector {
       return;
     }
 
-    // Zona R/C/I.
-    if (info.level >= maxLevelOf(info.type)) {
+    // Zona R/C/I. Para residencial, el tope depende del ESTILO (suburbio 2, eco/lujo 3),
+    // no del máximo estructural (5): así el botón no dice "Mejorar" en una casa ya al tope.
+    const zoneMax = info.type === TileType.Residential ? RES_STYLE[info.style].maxLevel : maxLevelOf(info.type);
+    if (info.level >= zoneMax) {
       this.upgradeBtn.textContent = '⬆️ Nivel máximo';
       this.upgradeBtn.disabled = true;
       this.upgradeBtn.title = '';

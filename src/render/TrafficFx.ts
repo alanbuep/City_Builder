@@ -43,6 +43,7 @@ interface Agent {
   speed: number;
   side: number; // peatones: de qué lado de la calle caminan (±1)
   color: THREE.Color; // se asigna al aparecer (estable mientras circula)
+  palette: number[]; // de qué paleta salió (autos vs peatones) — para recolorear al respawnear
 }
 
 export class TrafficFx {
@@ -124,6 +125,8 @@ export class TrafficFx {
         mesh.castShadow = true;
         const old = current();
         this.scene.remove(old);
+        old.geometry.dispose(); // dispose() del InstancedMesh no libera geo/material
+        (old.material as THREE.Material).dispose();
         old.dispose();
         this.scene.add(mesh);
         apply(mesh);
@@ -151,6 +154,7 @@ export class TrafficFx {
       speed,
       side: Math.random() < 0.5 ? 1 : -1,
       color: new THREE.Color(0xffffff),
+      palette: speed === PED_SPEED ? PED_COLORS : CAR_COLORS,
     };
   }
 
@@ -167,8 +171,9 @@ export class TrafficFx {
   }
 
   /** Aparece en una calle al azar mirando hacia una vecina; si no hay red, queda inactivo. */
-  private respawn(a: Agent, colors: number[] = CAR_COLORS): void {
+  private respawn(a: Agent, colors: number[] = a.palette): void {
     a.active = false;
+    a.palette = colors;
     a.color.setHex(colors[(Math.random() * colors.length) | 0]);
     if (!this.roads.length) return;
     for (let tries = 0; tries < 5; tries++) {

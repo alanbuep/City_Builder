@@ -286,7 +286,7 @@ export class DisasterSystem {
     const inf = TILE_DEF[TileType.Fire].service;
     if (!inf) return out;
     this.city.forEach((tile, x, z) => {
-      if (tile.type === TileType.Fire && !this.city.isSubCell(x, z)) {
+      if (tile.type === TileType.Fire && !this.city.isSubCell(x, z) && !tile.damaged) {
         out.push({ x, z, radius: inf.radius, strength: inf.strength });
       }
     });

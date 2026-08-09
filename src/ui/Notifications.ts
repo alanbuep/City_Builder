@@ -25,7 +25,9 @@ export class Notifications {
   }
 
   update(alerts: Alert[]): void {
-    const key = alerts.map((a) => a.id).join(',');
+    // La clave incluye el TEXTO, no solo el id: así un aviso cuyo número cambia
+    // (p. ej. "N casillas en llamas") se re-renderiza en vez de quedar congelado.
+    const key = alerts.map((a) => `${a.id}:${a.text}`).join('|');
     if (key === this.lastKey) return; // sin cambios
     this.lastKey = key;
     const visible = alerts.slice(0, MAX_VISIBLE);

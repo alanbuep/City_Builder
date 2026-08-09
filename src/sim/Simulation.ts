@@ -169,6 +169,10 @@ export interface SimSave {
   territoryUnlocks?: number; // parcelas que abrió el jugador (encarece la próxima)
   missions?: string[]; // misiones cumplidas (opcional: partidas viejas no lo tienen)
   xp?: number; // XP del nivel de ciudad (opcional: partidas viejas la estiman al cargar)
+  peakPopulation?: number; // pico histórico de población (opcional)
+  raceActive?: boolean; // carrera en curso (opcional)
+  raceMonthsLeft?: number; // meses restantes del evento (opcional)
+  raceCooldown?: number; // meses hasta el próximo evento (opcional)
   materials?: MaterialsSave; // stock de materiales (opcional: partidas viejas no lo tienen)
   construction?: Construction[]; // obras en curso (opcional)
   disasters?: DisasterSave; // catástrofes en curso (opcional)
@@ -286,6 +290,7 @@ export class Simulation {
   disastersSurvived = 0; // catástrofes que atravesó la ciudad
   private territorySpent = 0; // fichas ya gastadas abriendo territorio
   private territoryUnlocks = 0; // parcelas que abrió el jugador (encarece la próxima)
+  private peakPopulation = 0; // pico histórico de población (los hitos son logros: no bajan si la población cae)
 
   // Misiones cumplidas (monotónico, como la tecnología) + cola de avisos.
   private missionsDone = new Set<string>();
@@ -299,7 +304,7 @@ export class Simulation {
   raceTracks = 0; // circuitos sanos en la ciudad
   raceActive = false; // ¿hay una carrera en curso este mes?
   private raceMonthsLeft = 0; // meses que dura el evento actual
-  private raceCooldown = 0; // meses hasta el próximo evento
+  private raceCooldown = 0; // meses hasta el próximo evento (0 = el 1er circuito organiza una carrera enseguida)
   private justStartedRace = false; // para avisar (toast) cuando arranca una carrera
   private securityCap = 0; // capacidad total instalada de cada categoría (para el inspector)
   private healthCap = 0;
@@ -590,8 +595,11 @@ export class Simulation {
 
   /** ¿Cuántos hitos de población alcanzó la ciudad? (cada uno da 1 ficha). */
   private populationMilestones(): number {
+    // Los hitos son LOGROS: se cuentan sobre el pico histórico, así una caída de
+    // población (incendio/decaimiento) no te quita fichas ya ganadas.
+    if (this.population > this.peakPopulation) this.peakPopulation = this.population;
     let n = 0;
-    for (const m of POP_MILESTONES) if (this.population >= m) n++;
+    for (const m of POP_MILESTONES) if (this.peakPopulation >= m) n++;
     return n;
   }
 
@@ -827,6 +835,10 @@ export class Simulation {
       disasters: this.disasters.serialize(),
       missions: [...this.missionsDone],
       xp: this.xp,
+      peakPopulation: this.peakPopulation,
+      raceActive: this.raceActive,
+      raceMonthsLeft: this.raceMonthsLeft,
+      raceCooldown: this.raceCooldown,
     };
   }
 
@@ -844,10 +856,16 @@ export class Simulation {
     for (const s of data.construction ?? []) this.sites.set(this.siteKey(s.x, s.z), s);
     this.disasters.load(data.disasters);
     this.missionsDone = new Set(data.missions ?? []);
+    // Carreras: se restauran para no re-disparar/farmear en cada recarga.
+    this.raceActive = data.raceActive ?? false;
+    this.raceMonthsLeft = data.raceMonthsLeft ?? 0;
+    this.raceCooldown = data.raceCooldown ?? 0;
     this.refresh();
     // Partidas de antes del sistema de nivel: estimar la XP de lo ya logrado
     // (necesita la población, así que va DESPUÉS de refresh()).
     this.xp = data.xp ?? this.estimateXp();
+    // Pico de población: lo guardado o, en partidas viejas, la población actual.
+    this.peakPopulation = data.peakPopulation ?? this.population;
     this.justLeveled = [];
   }
 
@@ -859,11 +877,15 @@ export class Simulation {
     this.disastersSurvived = 0;
     this.territorySpent = 0;
     this.territoryUnlocks = 0;
+    this.peakPopulation = 0;
     this.unlocked.clear();
     this.missionsDone.clear();
     this.justCompletedMissions = [];
     this.xp = 0;
     this.justLeveled = [];
+    this.raceActive = false;
+    this.raceMonthsLeft = 0;
+    this.raceCooldown = 0;
     this.materials.reset();
     this.sites.clear();
     this.disasters.reset();
@@ -930,7 +952,18 @@ export class Simulation {
   getTechStatus(): TechStatus {
     const unlocked = this.unlocked.size;
     const total = TECHS.length;
-    const next = TECHS.find((t) => !this.unlocked.has(t.id));
+    // "Próximo" = el hito bloqueado MÁS CERCA de cumplirse (mayor progreso), no el
+    // primero del array — así el HUD no esconde una meta cercana tras una lejana.
+    let next: TechDef | undefined;
+    let bestProgress = -1;
+    for (const t of TECHS) {
+      if (this.unlocked.has(t.id)) continue;
+      const p = t.target > 0 ? Math.max(0, this.metricValue(t.metric)) / t.target : 0;
+      if (p > bestProgress) {
+        bestProgress = p;
+        next = t;
+      }
+    }
     if (!next) return { unlocked, total, next: null };
     const current = Math.max(0, this.metricValue(next.metric));
     return {

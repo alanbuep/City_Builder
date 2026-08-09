@@ -807,6 +807,21 @@ export class CityRenderer {
     return this.coverageAreaPool[i];
   }
 
+  /**
+   * Casilla del EDIFICIO realmente tocado por el rayo (intersecta los modelos, no
+   * el plano y=0). Evita el error de parallax al tocar una torre alta con la cámara
+   * rasante (el plano mandaba a una casilla de atrás). null si el rayo no pega ningún
+   * modelo → el llamador cae al picking por plano del suelo.
+   */
+  pickTileCoord(raycaster: THREE.Raycaster): { x: number; z: number } | null {
+    const hits = raycaster.intersectObjects(this.group.children, true);
+    if (!hits.length) return null;
+    const p = hits[0].point;
+    const x = Math.floor((p.x + (this.city.width * this.grid.tileSize) / 2) / this.grid.tileSize);
+    const z = Math.floor((p.z + (this.city.height * this.grid.tileSize) / 2) / this.grid.tileSize);
+    return this.city.inBounds(x, z) ? { x, z } : null;
+  }
+
   /** ¿El rayo toca alguna burbuja visible? Devuelve su índice (= índice en el array), o -1. */
   pickBubble(raycaster: THREE.Raycaster): number {
     const visible = this.bubblePool.filter((s) => s.visible);

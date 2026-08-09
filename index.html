@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#9fc9e8" />
+    <meta name="theme-color" content="#0a182c" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -166,7 +166,7 @@
 
       /* --- Píldora "Construyendo: …" (abajo al centro, sobre la barra) --- */
       #toolpill {
-        position: fixed; bottom: 62px; left: 50%; transform: translateX(-50%); z-index: 12;
+        position: fixed; bottom: calc(62px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 12;
         display: flex; gap: 10px; align-items: center; white-space: nowrap; max-width: 96vw;
       }
 
@@ -185,7 +185,7 @@
       }
 
       /* --- Panel inspector (abajo al centro, sobre la barra de acciones) --- */
-      #inspector { position: fixed; bottom: 62px; left: 50%; transform: translateX(-50%); z-index: 11; }
+      #inspector { position: fixed; bottom: calc(62px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 11; }
       .inspector { min-width: 250px; max-width: min(96vw, 360px); max-height: 46vh; overflow-y: auto; }
       .insp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
       .insp-title { font-weight: 700; font-size: 15px; }
@@ -199,7 +199,7 @@
 
       /* --- Notificaciones (abajo a la izquierda, sobre la barra) --- */
       #notifications {
-        position: fixed; bottom: 62px; left: 8px; z-index: 9;
+        position: fixed; bottom: calc(62px + env(safe-area-inset-bottom)); left: 8px; z-index: 9;
         display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
         max-width: min(300px, 56vw); max-height: 180px; overflow-y: auto;
       }
@@ -214,7 +214,7 @@
 
       /* --- Toasts (avisos temporales) debajo de la barra superior --- */
       #toasts {
-        position: fixed; top: 48px; left: 50%; transform: translateX(-50%); z-index: 40;
+        position: fixed; top: calc(48px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 40;
         display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none;
       }
       .toast {
@@ -250,9 +250,9 @@
         .panel { font-size: 12px; padding: 8px 10px; }
         .modal { width: 94vw; max-height: 80vh; }
         .build-cats { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
-        #inspector { bottom: 64px; max-width: 96vw; }
-        #toolpill { bottom: 64px; }
-        #notifications { bottom: 64px; max-width: 56vw; max-height: 120px; }
+        #inspector { bottom: calc(64px + env(safe-area-inset-bottom)); max-width: 96vw; }
+        #toolpill { bottom: calc(64px + env(safe-area-inset-bottom)); }
+        #notifications { bottom: calc(64px + env(safe-area-inset-bottom)); max-width: 56vw; max-height: 120px; }
       }
     </style>
   </head>
