@@ -298,7 +298,7 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Hospital]: { cost: 500, color: 0xe57373, height: 1.3, upkeep: 8, size: 2, health: { radius: 7, strength: 1.6, capacity: 800 }, build: { ladrillo: 30, cemento: 24 } },
   [TileType.Clinic]: { cost: 200, color: 0xffab91, height: 0.9, upkeep: 4, health: { radius: 5, strength: 1.0, capacity: 300 }, build: { ladrillo: 10, cemento: 5 } },
 
-  [TileType.Casino]: { cost: 600, color: 0xffca28, height: 1.2, upkeep: 8, size: 2, shopJobs: 60, amenity: { radius: 3, strength: 0.5 }, income: 40, build: { cemento: 28, ladrillo: 24 } },
+  [TileType.Casino]: { cost: 600, color: 0xffca28, height: 1.2, upkeep: 8, size: 2, shopJobs: 60, amenity: { radius: 3, strength: 0.5 }, income: 25, build: { cemento: 28, ladrillo: 24 } },
   [TileType.Cinema]: { cost: 200, color: 0x5c6bc0, height: 0.9, upkeep: 3, shopJobs: 25, amenity: { radius: 3, strength: 0.5 }, build: { ladrillo: 12, cemento: 6 } },
   [TileType.AmusementPark]: { cost: 500, color: 0xec407a, height: 1.1, upkeep: 6, size: 2, shopJobs: 40, amenity: { radius: 6, strength: 1.2 }, build: { ladrillo: 30, madera: 18 } },
   [TileType.RaceTrack]: { cost: 900, color: 0x37474f, height: 0.4, upkeep: 8, size: 3, shopJobs: 40, raceTrack: true, amenity: { radius: 6, strength: 1.0 }, build: { cemento: 50, acero: 20 } },
@@ -308,7 +308,7 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Church]: { cost: 250, color: 0xefebe9, height: 1.3, upkeep: 3, amenity: { radius: 4, strength: 0.7 }, build: { ladrillo: 15, madera: 10 } },
   [TileType.Library]: { cost: 300, color: 0x795548, height: 1.0, upkeep: 4, education: { radius: 6, strength: 1.2, capacity: 500 }, build: { ladrillo: 15, madera: 8 } },
   [TileType.Monument]: { cost: 800, color: 0xd4af37, height: 2.2, upkeep: 6, size: 2, amenity: { radius: 6, strength: 1.4 }, build: { cemento: 40, ladrillo: 30, madera: 20 } },
-  [TileType.Airport]: { cost: 1200, color: 0x546e7a, height: 1.0, upkeep: 12, size: 3, shopJobs: 80, amenity: { radius: 6, strength: 1.0 }, income: 60, build: { cemento: 55, ladrillo: 45, madera: 30 } },
+  [TileType.Airport]: { cost: 1200, color: 0x546e7a, height: 1.0, upkeep: 12, size: 3, shopJobs: 80, amenity: { radius: 6, strength: 1.0 }, income: 40, build: { cemento: 55, ladrillo: 45, madera: 30 } },
 
   [TileType.BusStop]: { cost: 130, color: 0x607d8b, height: 0.5, upkeep: 2, transit: { radius: 4, strength: 0.6, capacity: 250 }, build: { cemento: 4, ladrillo: 2 } },
   [TileType.TramStop]: { cost: 280, color: 0x00838f, height: 0.7, upkeep: 4, transit: { radius: 5, strength: 0.9, capacity: 500 }, build: { cemento: 10, ladrillo: 8, acero: 4 } },
@@ -336,8 +336,8 @@ export const TILE_DEF: Record<TileType, TileDef> = {
   [TileType.Kiosk]: { cost: 80, color: 0x26a69a, height: 0.5, upkeep: 1, shopJobs: 6, build: { madera: 4, ladrillo: 2 } },
   [TileType.Boutique]: { cost: 200, color: 0xba68c8, height: 0.8, upkeep: 2, shopJobs: 18, amenity: { radius: 2, strength: 0.3 }, build: { ladrillo: 8, madera: 5 } },
   [TileType.Pharmacy]: { cost: 220, color: 0x4dd0e1, height: 0.8, upkeep: 3, shopJobs: 12, health: { radius: 4, strength: 0.6, capacity: 250 }, build: { ladrillo: 8, cemento: 4 } },
-  [TileType.Bank]: { cost: 400, color: 0xc9b037, height: 1.2, upkeep: 4, shopJobs: 30, income: 30, build: { cemento: 15, ladrillo: 10 } },
-  [TileType.GasStation]: { cost: 250, color: 0xef5350, height: 0.5, upkeep: 3, shopJobs: 12, income: 20, build: { cemento: 8, ladrillo: 5 } },
+  [TileType.Bank]: { cost: 400, color: 0xc9b037, height: 1.2, upkeep: 4, shopJobs: 30, income: 16, build: { cemento: 15, ladrillo: 10 } },
+  [TileType.GasStation]: { cost: 250, color: 0xef5350, height: 0.5, upkeep: 3, shopJobs: 12, income: 10, build: { cemento: 8, ladrillo: 5 } },
   [TileType.Dealership]: { cost: 450, color: 0x7986cb, height: 0.9, upkeep: 5, size: 2, shopJobs: 50, amenity: { radius: 2, strength: 0.2 }, build: { cemento: 20, ladrillo: 18, madera: 10 } },
 
   // Paisaje (decoración): barato, instantáneo, sin calle. Sube un poco el valor del suelo.

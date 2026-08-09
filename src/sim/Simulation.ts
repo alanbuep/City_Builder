@@ -225,10 +225,14 @@ const WELLBEING_FOR_L5 = 0.75;
 
 // --- Economía ---
 const START_MONEY = 10000;
-const TAX_WORKER = 1.4; // impuesto por adulto EMPLEADO
-const TAX_COMMERCE = 1.1; // impuesto por empleo comercial
-const TAX_INDUSTRY = 1.0; // impuesto por empleo industrial
-const SERVICE_COST_PER_CITIZEN = 0.35; // costo de atender a cada habitante
+// Impuestos (rebalanceados 2026-08: antes 1.4/1.1/1.0 con costo 0.35 → una ciudad
+// activa era una impresora de dinero, +2700/mes pasivos. Ahora el excedente es
+// modesto y hay que elegir en qué gastar). Ojo: se cobra por trabajador Y por
+// empleo (doble), por eso las tasas son bajas.
+const TAX_WORKER = 0.8; // impuesto por adulto EMPLEADO
+const TAX_COMMERCE = 0.5; // impuesto por empleo comercial
+const TAX_INDUSTRY = 0.4; // impuesto por empleo industrial
+const SERVICE_COST_PER_CITIZEN = 0.45; // costo de atender a cada habitante (progresivo: ciudades grandes cuestan más)
 const UPGRADE_BASE_COST = 150; // mejorar zona (× nivel destino)
 const ROAD_UPGRADE_COST = 120; // mejorar carretera (× nivel destino, × casillas del tramo)
 
@@ -1544,6 +1548,22 @@ export class Simulation {
     // Gastos: mantenimiento + costo de atender a cada habitante.
     const expenses = this.totalUpkeep + this.population * SERVICE_COST_PER_CITIZEN;
     this.money += income - expenses;
+  }
+
+  /** Desglose del balance mensual (para análisis de balance / depuración). */
+  economyBreakdown(): {
+    incomeTax: number; commerce: number; industry: number; rents: number;
+    trade: number; race: number; upkeep: number; services: number; net: number;
+  } {
+    const incomeTax = this.employed * TAX_WORKER;
+    const commerce = this.commercialJobs * TAX_COMMERCE;
+    const industry = this.industrialJobs * TAX_INDUSTRY;
+    const rents = this.bonusIncome;
+    const trade = this.materials.tradeIncome;
+    const race = this.raceActive ? RACE_INCOME * this.raceTracks : 0;
+    const upkeep = this.totalUpkeep;
+    const services = this.population * SERVICE_COST_PER_CITIZEN;
+    return { incomeTax, commerce, industry, rents, trade, race, upkeep, services, net: incomeTax + commerce + industry + rents + trade + race - upkeep - services };
   }
 
   getStats(): CityStats {
