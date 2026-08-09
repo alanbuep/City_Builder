@@ -1,4 +1,5 @@
 import { TileInfo } from '../sim/Simulation';
+import { icon } from './icons';
 import {
   TileType,
   TILE_DEF,
@@ -21,7 +22,7 @@ function formatBag(bag: MaterialBag): string {
     .join(' + ');
 }
 
-const NAME: Record<TileType, string> = {
+const RAW_NAME: Record<TileType, string> = {
   [TileType.Empty]: 'Terreno vacío',
   [TileType.Road]: 'Carretera',
   [TileType.Residential]: 'Residencial 🏠',
@@ -103,6 +104,14 @@ const NAME: Record<TileType, string> = {
   [TileType.Construction]: 'Obra 🚧',
 };
 
+// Los títulos del inspector van SIN emoji (look profesional): se los quitamos a la
+// tabla de nombres una sola vez. Las descripciones del cuerpo sí conservan sus
+// símbolos porque son contenido explicativo.
+const EMOJI_TAIL = /\s*[\p{Extended_Pictographic}️]+\s*$/u;
+const NAME: Record<TileType, string> = Object.fromEntries(
+  Object.entries(RAW_NAME).map(([k, v]) => [k, v.replace(EMOJI_TAIL, '')]),
+) as Record<TileType, string>;
+
 export interface InspectorCallbacks {
   onUpgrade: () => void;
   onRepair: () => void; // reparar un edificio dañado por una catástrofe
@@ -140,18 +149,18 @@ export class Inspector {
     this.root.innerHTML = `
       <div class="insp-head">
         <span class="insp-title"></span>
-        <button class="insp-close" title="Cerrar">✕</button>
+        <button class="insp-close" title="Cerrar">${icon('close', 18)}</button>
       </div>
       <div class="insp-body"></div>
       <div class="insp-actions">
-        <button class="ctrl insp-exminus" title="Conservar menos (exportar más)">➖</button>
-        <button class="ctrl insp-explus" title="Conservar más (exportar menos)">➕</button>
+        <button class="ctrl icon-btn insp-exminus" title="Conservar menos (exportar más)">${icon('minus')}</button>
+        <button class="ctrl icon-btn insp-explus" title="Conservar más (exportar menos)">${icon('plus')}</button>
         <button class="ctrl insp-start"></button>
         <button class="ctrl insp-repair"></button>
         <button class="ctrl insp-unlock"></button>
-        <button class="ctrl insp-rotate" title="Girar el edificio (cambia hacia dónde mira el frente)">🔄 Girar</button>
+        <button class="ctrl insp-rotate" title="Girar el edificio (cambia hacia dónde mira el frente)">${icon('rotate', 16)}<span>Girar</span></button>
         <button class="ctrl insp-upgrade"></button>
-        <button class="ctrl insp-demolish">🧨 Demoler</button>
+        <button class="ctrl insp-demolish">${icon('trash', 16)}<span>Demoler</span></button>
       </div>
     `;
     container.appendChild(this.root);
@@ -219,14 +228,14 @@ export class Inspector {
 
     if (info.type === TileType.Empty) {
       if (info.terrainKind === 'water') {
-        this.titleEl.textContent = 'Agua 🌊';
+        this.titleEl.textContent = 'Agua';
         lines.push('Lago / río. No se puede construir acá.');
         lines.push('<i style="opacity:.8">💧 Las casillas cercanas valen más (vista al agua).</i>');
       } else if (info.terrainKind === 'mountain') {
-        this.titleEl.textContent = 'Montaña ⛰️';
+        this.titleEl.textContent = 'Montaña';
         lines.push('Terreno montañoso. No se puede construir acá.');
       } else if (info.terrainKind === 'beach') {
-        this.titleEl.textContent = 'Playa 🏖️';
+        this.titleEl.textContent = 'Playa';
         lines.push('Arena junto al agua. Se puede construir, y es donde van las represas y los puertos. 🌊');
       } else {
         lines.push('Terreno libre. Construí algo aquí.');
@@ -405,7 +414,7 @@ export class Inspector {
 
   /** Panel de territorio bloqueado: fichas disponibles + botón Desbloquear. */
   private renderLocked(info: TileInfo): void {
-    this.titleEl.textContent = '🔒 Territorio bloqueado';
+    this.titleEl.textContent = 'Territorio bloqueado';
     const s = info.tokenSources;
     const lines = [
       'Esta parcela todavía no es tuya. Desbloqueala para construir acá.',
@@ -421,7 +430,7 @@ export class Inspector {
     this.exPlusBtn.style.display = 'none';
     this.demolishBtn.style.display = 'none';
     this.unlockBtn.style.display = '';
-    this.unlockBtn.textContent = `🗝️ Desbloquear (${info.unlockCost})`;
+    this.unlockBtn.innerHTML = `${icon('key', 16)}<span>Desbloquear (${info.unlockCost})</span>`;
     this.unlockBtn.disabled = !info.canUnlock;
     this.unlockBtn.title = info.canUnlock
       ? 'Abre esta parcela para construir'
@@ -432,7 +441,7 @@ export class Inspector {
 
   /** Panel de un edificio dañado por una catástrofe: explicación + botón Reparar. */
   private renderDamaged(info: TileInfo, money: number): void {
-    this.titleEl.textContent = `${NAME[info.type]} — en ruinas 🚧`;
+    this.titleEl.textContent = `${NAME[info.type]} — en ruinas`;
     const lines = [
       '<b style="color:#ff8a80">Dañado por una catástrofe.</b>',
       'No funciona (sin habitantes/empleos/cobertura) hasta repararlo.',
@@ -449,7 +458,7 @@ export class Inspector {
     const cost = info.repairCost;
     const affordable = money >= cost;
     this.repairBtn.style.display = '';
-    this.repairBtn.textContent = `🛠️ Reparar ($${cost})`;
+    this.repairBtn.innerHTML = `${icon('wrench', 16)}<span>Reparar ($${cost})</span>`;
     this.repairBtn.disabled = !affordable;
     this.repairBtn.title = affordable ? 'Repara el edificio y lo reactiva' : 'Dinero insuficiente';
   }
@@ -457,7 +466,7 @@ export class Inspector {
   /** Panel de una obra en construcción: qué será, costo, progreso y botón Iniciar. */
   private renderConstruction(info: TileInfo): void {
     const c = info.construction!;
-    this.titleEl.textContent = '🚧 Obra';
+    this.titleEl.textContent = 'Obra';
 
     const lines: string[] = [];
     if (c.targetLevel !== undefined) {
@@ -502,7 +511,7 @@ export class Inspector {
     if (c.status === 'planned') {
       this.startBtn.style.display = '';
       this.startBtn.disabled = !c.canStart;
-      this.startBtn.textContent = `▶️ Iniciar ($${c.cost})`;
+      this.startBtn.innerHTML = `${icon('play', 16)}<span>Iniciar ($${c.cost})</span>`;
       this.startBtn.title = c.canStart ? 'Cobra dinero + materiales y arranca la obra' : c.reason;
     } else {
       this.startBtn.style.display = 'none';
@@ -522,11 +531,11 @@ export class Inspector {
 
     if (isRoad) {
       if (info.level >= ROAD_MAX_LEVEL) {
-        this.upgradeBtn.textContent = '⬆️ Nivel máximo';
+        this.upgradeBtn.innerHTML = `${icon('up', 16)}<span>Nivel máximo</span>`;
         this.upgradeBtn.disabled = true;
         this.upgradeBtn.title = '';
       } else {
-        this.upgradeBtn.textContent = `⬆️ Mejorar tramo → ${ROAD_LEVEL_NAME[info.level + 1]} ($${cost})`;
+        this.upgradeBtn.innerHTML = `${icon('up', 16)}<span>Mejorar tramo → ${ROAD_LEVEL_NAME[info.level + 1]} ($${cost})</span>`;
         this.upgradeBtn.disabled = !affordable;
         this.upgradeBtn.title = affordable ? 'Mejora solo el tramo elegido (arrastrá para elegirlo)' : 'Dinero insuficiente';
       }
@@ -537,12 +546,12 @@ export class Inspector {
     // no del máximo estructural (5): así el botón no dice "Mejorar" en una casa ya al tope.
     const zoneMax = info.type === TileType.Residential ? RES_STYLE[info.style].maxLevel : maxLevelOf(info.type);
     if (info.level >= zoneMax) {
-      this.upgradeBtn.textContent = '⬆️ Nivel máximo';
+      this.upgradeBtn.innerHTML = `${icon('up', 16)}<span>Nivel máximo</span>`;
       this.upgradeBtn.disabled = true;
       this.upgradeBtn.title = '';
     } else {
       const toTower = info.type === TileType.Residential && info.level >= MAX_LEVEL;
-      this.upgradeBtn.textContent = `⬆️ ${toTower ? 'Levantar rascacielos' : 'Mejorar'} ($${info.upgradeCost})`;
+      this.upgradeBtn.innerHTML = `${icon('up', 16)}<span>${toTower ? 'Levantar rascacielos' : 'Mejorar'} ($${info.upgradeCost})</span>`;
       this.upgradeBtn.disabled = !(info.canUpgrade && affordable);
       this.upgradeBtn.title = !info.hasRoad
         ? 'Necesita una carretera al lado'

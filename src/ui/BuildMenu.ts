@@ -1,20 +1,21 @@
 import { Modal } from './Modal';
-import { CATEGORIES, Tool, TOOL_LABEL, isPaintTool } from './Catalog';
+import { CATEGORIES, Tool, toolLabel, toolIcon, isPaintTool } from './Catalog';
+import { icon } from './icons';
 import { TileType, TILE_DEF, ResidentialStyle, RES_STYLE } from '../sim/types';
 import { TECH_BY_TYPE, METRIC_LABEL } from '../sim/Tech';
 
 /**
- * El menú de construcción: UN botón (🏗️ Construir) abre una ventana centrada
- * con los RUBROS en grilla; tocar un rubro muestra sus edificios (con costo y
- * descripción) y se puede VOLVER con ←. Elegir un edificio activa esa
- * herramienta y muestra una píldora abajo ("Construyendo: …") con ✕ para
- * terminar y volver a la selección normal (tocar edificios para ver su info).
+ * El menú de construcción: UN botón (Construir) abre una ventana centrada con los
+ * RUBROS en grilla; tocar un rubro muestra sus edificios (con costo y descripción)
+ * y se puede VOLVER con ←. Elegir un edificio activa esa herramienta y muestra una
+ * píldora abajo ("Construyendo: …") con un botón para terminar y volver a la
+ * selección normal (tocar edificios para ver su info).
  */
 export class BuildMenu {
   current: Tool = 'select';
   currentResStyle: ResidentialStyle = 'default'; // estilo elegido para pintar residencial
 
-  private modal = new Modal('🏗️ Construir');
+  private modal = new Modal('Construir', 'hammer');
   private pill: HTMLElement;
   private pillLabel: HTMLElement;
   private openCategory = -1; // -1 = vista de rubros
@@ -31,7 +32,7 @@ export class BuildMenu {
     this.pill.appendChild(this.pillLabel);
     const done = document.createElement('button');
     done.className = 'ctrl';
-    done.textContent = '✕ Listo';
+    done.innerHTML = `${icon('close', 16)}<span>Listo</span>`;
     done.title = 'Terminar de construir (vuelve a la selección)';
     done.addEventListener('click', () => this.useSelect());
     this.pill.appendChild(done);
@@ -65,7 +66,7 @@ export class BuildMenu {
     }
   }
 
-  /** Vuelve a la herramienta de selección 🔍 (tocar edificios = ver su info). */
+  /** Vuelve a la herramienta de selección (tocar edificios = ver su info). */
   useSelect(): void {
     this.current = 'select';
     this.updatePill();
@@ -87,12 +88,13 @@ export class BuildMenu {
       return;
     }
     const st = RES_STYLE[this.currentResStyle];
+    const iconName = this.current === TileType.Residential ? 'home' : toolIcon(this.current);
     const label =
-      this.current === TileType.Residential
-        ? `${st.icon} Residencial ${st.label}`
-        : TOOL_LABEL.get(this.current) ?? '';
+      this.current === TileType.Residential ? `Residencial ${st.label}` : toolLabel(this.current);
     const hint = isPaintTool(this.current) || this.current === TileType.Road ? ' — arrastrá para trazar' : '';
-    this.pillLabel.innerHTML = `<span style="opacity:.75">Construyendo:</span> <b>${label}</b><span style="opacity:.6; font-size:11px">${hint}</span>`;
+    this.pillLabel.innerHTML =
+      `<span style="opacity:.75">Construyendo:</span> ${icon(iconName, 16)}<b>${label}</b>` +
+      `<span style="opacity:.6; font-size:11px">${hint}</span>`;
     this.pill.style.display = '';
   }
 
@@ -115,7 +117,7 @@ export class BuildMenu {
 
   /** Vista 1: grilla de rubros (con cuántos edificios tiene disponibles cada uno). */
   private renderCats(): void {
-    this.modal.setTitle('🏗️ Construir');
+    this.modal.setTitle('Construir', 'hammer');
     this.modal.setBack(null);
     this.modal.body.innerHTML = '';
     const grid = document.createElement('div');
@@ -125,7 +127,7 @@ export class BuildMenu {
       const btn = document.createElement('button');
       btn.className = 'build-cat';
       btn.innerHTML =
-        `<span class="ico">${cat.icon}</span><span class="nm">${cat.name}</span>` +
+        `<span class="ico">${icon(cat.icon, 26)}</span><span class="nm">${cat.name}</span>` +
         `<span class="ct">${avail}/${cat.tools.length}</span>`;
       btn.addEventListener('click', () => {
         this.openCategory = i;
@@ -140,7 +142,7 @@ export class BuildMenu {
   private renderTools(): void {
     const cat = CATEGORIES[this.openCategory];
     if (!cat) return;
-    this.modal.setTitle(`${cat.icon} ${cat.name}`);
+    this.modal.setTitle(cat.name, cat.icon);
     this.modal.setBack(() => {
       this.openCategory = -1;
       this.renderCats();
@@ -153,9 +155,15 @@ export class BuildMenu {
       const locked = this.isLocked(entry.tool);
       const btn = document.createElement('button');
       btn.className = locked ? 'build-item locked' : 'build-item';
-      const right = locked ? '🔒' : cost > 0 ? `<span class="tool-cost">$${cost}</span>` : '<span class="tool-cost">gratis</span>';
-      const desc = locked ? `🔒 ${this.lockReason(entry.tool)}` : entry.desc;
-      btn.innerHTML = `<span class="row1"><span>${entry.label}</span>${right}</span><span class="desc">${desc}</span>`;
+      const right = locked
+        ? `<span class="bi-lock">${icon('lock', 15)}</span>`
+        : cost > 0
+          ? `<span class="tool-cost">$${cost}</span>`
+          : '<span class="tool-cost">gratis</span>';
+      const desc = locked ? this.lockReason(entry.tool) : entry.desc;
+      btn.innerHTML =
+        `<span class="row1"><span class="bi-name">${icon(entry.icon, 18)}<span>${entry.label}</span></span>${right}</span>` +
+        `<span class="desc">${desc}</span>`;
       if (!locked) btn.addEventListener('click', () => this.select(entry.tool, entry.style));
       list.appendChild(btn);
     }

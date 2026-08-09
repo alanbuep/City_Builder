@@ -36,7 +36,7 @@ interface DragStep {
   cost: number;
 }
 
-const TICK_INTERVAL_MS = 1000; // 1 mes de juego por segundo (a velocidad 1x)
+const TICK_INTERVAL_MS = 2500; // 1x = un mes cada 2,5 s (antes 1 s: los meses volaban). 2x/3x aceleran.
 const MAX_CATCHUP = 5; // máx. de meses a "recuperar" si la pestaña se congela
 const SPONTANEOUS_FIRE_CHANCE = 0.015; // prob. por mes de un incendio espontáneo (si están activadas)
 const BUBBLE_INTERVAL_MS = 3200; // cada cuánto rotan las burbujas de opinión de los vecinos
@@ -695,12 +695,12 @@ export class Game {
   private unlockSelectedTerritory(): void {
     if (!this.selected) return;
     if (this.sim.unlockTerritory(this.selected.x, this.selected.z)) {
-      this.notifications.toast('🗝️', '¡Nuevo territorio desbloqueado!');
+      this.notifications.toast('key', '¡Nuevo territorio desbloqueado!');
       this.sound.play('unlock');
       this.cityRenderer.setLockedRegions(this.city.lockedRegions());
       this.refreshSelection();
     } else {
-      this.notifications.toast('🔒', 'Faltan fichas o no es contigua a tu ciudad.');
+      this.notifications.toast('lock', 'Faltan fichas o no es contigua a tu ciudad.');
       this.sound.play('error');
     }
   }
@@ -717,7 +717,7 @@ export class Game {
   private repairSelected(): void {
     if (!this.selected) return;
     if (this.sim.repair(this.selected.x, this.selected.z)) {
-      this.notifications.toast('🛠️', '¡Edificio reparado!');
+      this.notifications.toast('wrench', '¡Edificio reparado!');
       this.sound.play('repair');
     }
   }
@@ -762,7 +762,7 @@ export class Game {
     if (!ok && !this.saveWarned) {
       // Avisar UNA vez: el guardado local falló (almacenamiento lleno / modo privado).
       this.saveWarned = true;
-      this.notifications.toast('⚠️', 'No se pudo guardar (almacenamiento lleno). Exportá tu ciudad desde ⚙️ Menú.');
+      this.notifications.toast('alert', 'No se pudo guardar (almacenamiento lleno). Exportá tu ciudad desde el Menú.');
     } else if (ok) {
       this.saveWarned = false;
     }
@@ -784,9 +784,9 @@ export class Game {
     const data = loadLocal();
     if (data) {
       this.applySave(data);
-      this.notifications.toast('📂', 'Partida cargada.');
+      this.notifications.toast('folder', 'Partida cargada.');
     } else {
-      this.notifications.toast('🤷', 'No hay nada guardado todavía.');
+      this.notifications.toast('info', 'No hay nada guardado todavía.');
     }
   }
 
@@ -879,24 +879,24 @@ export class Game {
     // Tecnología: refresca qué edificios están disponibles y avisa los nuevos.
     this.build.setUnlocked(this.sim.unlockedTypes());
     for (const tech of this.sim.drainUnlocks()) {
-      this.notifications.toast(tech.icon, `¡Desbloqueado: ${tech.name}!`);
+      this.notifications.toast('sparkles', `¡Desbloqueado: ${tech.name}!`);
       this.sound.play('unlock');
     }
     if (this.sim.drainBuilt().length) {
-      this.notifications.toast('🏗️', '¡Obra terminada!');
+      this.notifications.toast('hammer', '¡Obra terminada!');
       this.sound.play('done');
     }
     for (const mission of this.sim.drainCompletedMissions()) {
       const r = mission.reward;
-      const reward = [r.money ? `$${r.money}` : '', r.tokens ? `${r.tokens} 🗝️` : ''].filter(Boolean).join(' + ');
-      this.notifications.toast('🎯', `¡Misión cumplida: ${mission.name}! Ganaste ${reward}.`);
+      const reward = [r.money ? `$${r.money}` : '', r.tokens ? `${r.tokens} fichas` : ''].filter(Boolean).join(' + ');
+      this.notifications.toast('target', `¡Misión cumplida: ${mission.name}! Ganaste ${reward}.`);
       this.sound.play('mission');
     }
     for (const lv of this.sim.drainLevelUps()) {
-      this.notifications.toast('⭐', `¡Tu ciudad subió al nivel ${lv}! Premio: $${LEVEL_MONEY * lv}.`);
+      this.notifications.toast('star', `¡Tu ciudad subió al nivel ${lv}! Premio: $${LEVEL_MONEY * lv}.`);
       this.sound.play('mission');
       if (lv === FEATURE_LEVEL.disasters) {
-        this.notifications.toast('🌪️', '¡Se desbloquearon las catástrofes! (menú de la izquierda)');
+        this.notifications.toast('alert', '¡Se desbloquearon las catástrofes! (botón en la barra de abajo)');
       }
     }
     // El botón de catástrofes recién aparece cuando la ciudad tiene nivel para eso.
@@ -926,10 +926,10 @@ export class Game {
       this.sourcesDirty = false;
     }
     this.cityRenderer.setRace(this.sim.raceActive, this.srcTracks);
-    if (this.sim.drainRaceStart()) this.notifications.toast('🏁', '¡Fin de semana de carreras! 🏎️');
+    if (this.sim.drainRaceStart()) this.notifications.toast('flag', '¡Fin de semana de carreras!');
 
     const burned = this.sim.disasters.drainDestroyed();
-    if (burned.length) this.notifications.toast('🔥', `¡${burned.length} edificio(s) se quemaron!`);
+    if (burned.length) this.notifications.toast('flame', `¡${burned.length} edificio(s) se quemaron!`);
 
     // Burbujas de opinión: se renuevan cada tanto (no en pausa) y se reposicionan cada frame.
     if (!this.paused && now >= this.nextBubbleAt) {
@@ -998,20 +998,20 @@ export class Game {
     const cell = this.sim.disasters.igniteRandom(Math.random);
     if (cell) {
       this.sim.recordDisaster(1); // ficha/XP solo si prendió algo y no está en cooldown
-      this.notifications.toast('🔥', '¡Se desató un incendio!');
+      this.notifications.toast('flame', '¡Se desató un incendio!');
       this.sound.play('disaster');
-    } else this.notifications.toast('🤷', 'No hay edificios para incendiar.');
+    } else this.notifications.toast('info', 'No hay edificios para incendiar.');
   }
 
   /** Lanza un meteorito: cae sobre un objetivo y, al impactar, arrasa e incendia. */
   private triggerMeteor(): void {
     const target = this.sim.disasters.pickMeteorTarget(Math.random);
-    this.notifications.toast('🌠', '¡Meteorito en camino!');
+    this.notifications.toast('sparkles', '¡Meteorito en camino!');
     this.sound.play('disaster');
     this.cityRenderer.playMeteor(target.x, target.z, () => {
       const r = this.sim.disasters.strikeMeteor(target.x, target.z);
       this.sim.recordDisaster(r.destroyed.length); // ficha/XP solo si dañó algo (con cooldown)
-      this.notifications.toast('💥', `¡Impacto! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
+      this.notifications.toast('alert', `¡Impacto! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
     });
   }
 
@@ -1020,7 +1020,7 @@ export class Game {
     const r = this.sim.disasters.spawnTornado(Math.random);
     this.sim.recordDisaster(r.destroyed.length);
     this.cityRenderer.playTornado(r.path ?? []);
-    this.notifications.toast('🌪️', `¡Tornado! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
+    this.notifications.toast('wind', `¡Tornado! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
     this.sound.play('disaster');
   }
 
@@ -1029,7 +1029,7 @@ export class Game {
     const r = this.sim.disasters.spawnHurricane(Math.random);
     this.sim.recordDisaster(r.destroyed.length);
     this.cityRenderer.playHurricane();
-    this.notifications.toast('🌀', `¡Huracán! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
+    this.notifications.toast('refresh', `¡Huracán! ${r.destroyed.length} edificio(s) dañado(s) — reparalos.`);
     this.sound.play('disaster');
   }
 

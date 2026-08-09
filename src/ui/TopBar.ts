@@ -1,9 +1,11 @@
 import { CityStats } from '../sim/Simulation';
-import { Material, MATERIALS, MATERIAL_ICON, MATERIAL_LABEL, CORRALON_CAP } from '../sim/types';
+import { Material, MATERIALS, MATERIAL_LABEL, CORRALON_CAP } from '../sim/types';
+import { icon } from './icons';
 
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const START_YEAR = 2000;
 const RCI_BAR_PX = 16; // alto de las mini-barras de demanda R/C/I
+const MAT_ICON: Record<Material, string> = { arena: 'layers', cemento: 'box', ladrillo: 'wall', madera: 'tree', acero: 'ingot', electronica: 'cpu' };
 
 /**
  * Barra superior SIEMPRE visible con todos los recursos y servicios de la
@@ -36,14 +38,14 @@ export class TopBar {
   constructor(container: HTMLElement) {
     container.innerHTML = `
       <div class="chip chip-level" title="Nivel de tu ciudad: ganás XP construyendo, cumpliendo misiones y desbloqueando tecnología">
-        <span>⭐<b id="tb-level">—</b></span>
+        <span>${icon('star', 16)}<b id="tb-level">—</b></span>
         <span class="chip-bar"><span id="tb-level-fill"></span></span>
       </div>
-      <div class="chip" title="Dinero del tesoro">💰<b id="tb-money">—</b></div>
-      <div class="chip" title="Población total">👥<b id="tb-pop">—</b></div>
-      <div class="chip" title="Empleos totales de la ciudad">💼<b id="tb-jobs">—</b></div>
-      <div class="chip" title="Desempleo: en rojo si supera el 25%">📉<b id="tb-unemp">—</b></div>
-      <div class="chip" title="Fecha del juego">📅<b id="tb-date">—</b></div>
+      <div class="chip" title="Dinero del tesoro">${icon('money')}<b id="tb-money">—</b></div>
+      <div class="chip" title="Población total">${icon('users')}<b id="tb-pop">—</b></div>
+      <div class="chip" title="Empleos totales de la ciudad">${icon('briefcase')}<b id="tb-jobs">—</b></div>
+      <div class="chip" title="Desempleo: en rojo si supera el 25%">${icon('down')}<b id="tb-unemp">—</b></div>
+      <div class="chip" title="Fecha del juego">${icon('calendar')}<b id="tb-date">—</b></div>
       <div class="chip" title="Demanda RCI: cuánto quiere crecer cada tipo de zona — Residencial (verde), Comercial (azul) e Industrial (amarillo). Barra llena = construí de eso; en rojo = sobra.">
         <span class="rci-mini">
           <span class="rci-col"><i id="tb-rci-r"></i></span>
@@ -51,16 +53,16 @@ export class TopBar {
           <span class="rci-col"><i id="tb-rci-i"></i></span>
         </span><span style="opacity:.7">RCI</span>
       </div>
-      <div class="chip" title="Energía: producción / consumo. Sin energía las zonas no pasan de nivel 1.">⚡<b id="tb-power">—</b></div>
-      <div class="chip" title="Agua: producción / consumo. Hace falta para el nivel máximo de las zonas.">💧<b id="tb-water">—</b></div>
-      <div class="chip" title="Gas: producción / consumo. Hace falta para el nivel máximo de las zonas.">🔥<b id="tb-gas">—</b></div>
-      <div class="chip" title="Seguridad (policía/bomberos/gobierno): % de la población atendida. Habilita que las zonas suban de nivel.">🛡️<b id="tb-sec">—</b></div>
-      <div class="chip" title="Salud: % de la población atendida. Acelera el crecimiento.">🏥<b id="tb-health">—</b></div>
-      <div class="chip" title="Educación: % de la población atendida. Acelera el crecimiento.">🎓<b id="tb-edu">—</b></div>
-      <div class="chip" title="Comida: % de la población atendida. Acelera el crecimiento.">🍽️<b id="tb-food">—</b></div>
-      ${MATERIALS.map((m) => `<div class="chip" id="tb-mat-${m}-chip">${MATERIAL_ICON[m]}<b id="tb-mat-${m}">—</b></div>`).join('')}
-      <div class="chip" title="Ciencia acumulada: la generan laboratorios/observatorios y desbloquea lo más avanzado.">🔬<b id="tb-science">—</b></div>
-      <div class="chip" title="Fichas de territorio para expandir la ciudad (se ganan con tecnología, catástrofes superadas, población y misiones).">🗝️<b id="tb-territory">—</b></div>
+      <div class="chip" title="Energía: producción / consumo. Sin energía las zonas no pasan de nivel 1.">${icon('zap')}<b id="tb-power">—</b></div>
+      <div class="chip" title="Agua: producción / consumo. Hace falta para el nivel máximo de las zonas.">${icon('droplet')}<b id="tb-water">—</b></div>
+      <div class="chip" title="Gas: producción / consumo. Hace falta para el nivel máximo de las zonas.">${icon('flame')}<b id="tb-gas">—</b></div>
+      <div class="chip" title="Seguridad (policía/bomberos/gobierno): % de la población atendida. Habilita que las zonas suban de nivel.">${icon('shield')}<b id="tb-sec">—</b></div>
+      <div class="chip" title="Salud: % de la población atendida. Acelera el crecimiento.">${icon('heart')}<b id="tb-health">—</b></div>
+      <div class="chip" title="Educación: % de la población atendida. Acelera el crecimiento.">${icon('cap')}<b id="tb-edu">—</b></div>
+      <div class="chip" title="Comida: % de la población atendida. Acelera el crecimiento.">${icon('utensils')}<b id="tb-food">—</b></div>
+      ${MATERIALS.map((m) => `<div class="chip" id="tb-mat-${m}-chip">${icon(MAT_ICON[m])}<b id="tb-mat-${m}">—</b></div>`).join('')}
+      <div class="chip" title="Ciencia acumulada: la generan laboratorios/observatorios y desbloquea lo más avanzado.">${icon('flask')}<b id="tb-science">—</b></div>
+      <div class="chip" title="Fichas de territorio para expandir la ciudad (se ganan con tecnología, catástrofes superadas, población y misiones).">${icon('key')}<b id="tb-territory">—</b></div>
     `;
     const q = (id: string) => container.querySelector<HTMLElement>(`#${id}`)!;
     this.levelEl = q('tb-level');

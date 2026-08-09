@@ -16,6 +16,8 @@ export type Sfx =
   | 'select' // seleccionar una casilla
   | 'error'; // acción inválida
 
+import { icon } from './icons';
+
 const MUTE_KEY = 'city-builder-muted';
 const MASTER_VOLUME = 0.16; // discreto: acompaña sin tapar
 const MIN_GAP_MS = 45; // anti-spam al pintar arrastrando
@@ -38,14 +40,18 @@ export class Sound {
     return this.muted;
   }
 
-  /** Botón 🔊/🔇 para la barra de guardado. */
+  /** Botón de sonido (encendido/silenciado) para el menú. */
   attachButton(container: HTMLElement): void {
     const btn = document.createElement('button');
     btn.className = 'ctrl';
-    btn.textContent = this.muted ? '🔇' : '🔊';
+    const render = () => {
+      btn.innerHTML = `${icon(this.muted ? 'mute' : 'sound', 18)}<span>${this.muted ? 'Silenciado' : 'Con sonido'}</span>`;
+    };
+    render();
     btn.title = 'Sonido sí / no';
     btn.addEventListener('click', () => {
-      btn.textContent = this.toggleMute() ? '🔇' : '🔊';
+      this.toggleMute();
+      render();
     });
     container.appendChild(btn);
   }

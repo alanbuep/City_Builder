@@ -1,4 +1,5 @@
 import { Alert } from '../sim/Simulation';
+import { icon } from './icons';
 
 /** Cuántos avisos mostrar a la vez (los demás se resumen en "+N más"). */
 const MAX_VISIBLE = 5;
@@ -33,17 +34,17 @@ export class Notifications {
     const visible = alerts.slice(0, MAX_VISIBLE);
     const extra = alerts.length - visible.length;
     let html = visible
-      .map((a) => `<div class="notif ${a.level}"><span>${a.icon}</span><span>${a.text}</span></div>`)
+      .map((a) => `<div class="notif ${a.level}">${icon(a.level === 'warn' ? 'alert' : 'info', 15)}<span>${a.text}</span></div>`)
       .join('');
-    if (extra > 0) html += `<div class="notif info"><span>⋯</span><span>+${extra} aviso${extra > 1 ? 's' : ''} más</span></div>`;
+    if (extra > 0) html += `<div class="notif info">${icon('info', 15)}<span>+${extra} aviso${extra > 1 ? 's' : ''} más</span></div>`;
     this.root.innerHTML = html;
   }
 
   /** Aviso temporal arriba al centro (p. ej. un desbloqueo). Desaparece solo. */
-  toast(icon: string, text: string): void {
+  toast(iconName: string, text: string): void {
     const el = document.createElement('div');
     el.className = 'toast';
-    el.innerHTML = `<span class="toast-icon">${icon}</span><span>${text}</span>`;
+    el.innerHTML = `<span class="toast-icon">${icon(iconName, 20)}</span><span>${text}</span>`;
     this.toastRoot.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show')); // dispara la transición de entrada
     setTimeout(() => {

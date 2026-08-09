@@ -4,6 +4,8 @@
  * base: mismo look, mismo cierre (✕ / tocar afuera / Escape) y botón ← opcional
  * para volver un paso atrás (p. ej. de la lista de edificios a los rubros).
  */
+import { icon } from './icons';
+
 export class Modal {
   /** Acá va el contenido de la ventana (lo llena cada menú). */
   readonly body: HTMLElement;
@@ -15,7 +17,7 @@ export class Modal {
   private backBtn: HTMLButtonElement;
   private onBack: (() => void) | null = null;
 
-  constructor(title: string) {
+  constructor(title: string, iconName?: string) {
     this.overlay = document.createElement('div');
     this.overlay.className = 'modal-overlay';
     this.overlay.style.display = 'none';
@@ -30,7 +32,7 @@ export class Modal {
 
     this.backBtn = document.createElement('button');
     this.backBtn.className = 'modal-nav';
-    this.backBtn.textContent = '←';
+    this.backBtn.innerHTML = icon('back');
     this.backBtn.title = 'Volver';
     this.backBtn.style.display = 'none';
     this.backBtn.addEventListener('click', () => this.onBack?.());
@@ -38,12 +40,12 @@ export class Modal {
 
     this.titleEl = document.createElement('span');
     this.titleEl.className = 'modal-title';
-    this.titleEl.textContent = title;
     head.appendChild(this.titleEl);
+    this.setTitle(title, iconName);
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'modal-nav';
-    closeBtn.textContent = '✕';
+    closeBtn.innerHTML = icon('close');
     closeBtn.title = 'Cerrar';
     closeBtn.addEventListener('click', () => this.close());
     head.appendChild(closeBtn);
@@ -65,8 +67,8 @@ export class Modal {
     return this.overlay.style.display !== 'none';
   }
 
-  setTitle(title: string): void {
-    this.titleEl.textContent = title;
+  setTitle(title: string, iconName?: string): void {
+    this.titleEl.innerHTML = (iconName ? icon(iconName, 18) : '') + `<span>${title}</span>`;
   }
 
   /** Muestra (u oculta, con null) el botón ← de "volver un paso". */
